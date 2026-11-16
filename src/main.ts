@@ -12,6 +12,7 @@ import { noteInput, vNotes } from "./views/notes";
 import { vPasswords } from "./views/passwords";
 import { checkReminders, initReminders } from "./views/reminders";
 import { settingInput, vSettings } from "./views/settings";
+import { showReloadNote, vMissing } from "./views/datadir";
 import { vSetup } from "./views/setup";
 import { scheduleUpdateCheck } from "./views/update";
 import { lockVault, vGate } from "./views/vault";
@@ -23,6 +24,11 @@ setRender(() => {
   if (v === "setup") {
     root.innerHTML = vSetup();
     // browsers honour `autofocus` only on page load, so do it by hand
+    root.querySelector<HTMLElement>("[autofocus]")?.focus();
+    return;
+  }
+  if (v === "missing") {
+    root.innerHTML = vMissing();
     root.querySelector<HTMLElement>("[autofocus]")?.focus();
     return;
   }
@@ -93,6 +99,16 @@ async function boot() {
   S.backend = await createBackend();
   const status = await S.backend.status();
   S.dataDir = status.dataDir;
+  S.dataDirFixed = status.dataDirFixed;
+  S.logDir = status.logDir;
+  // Unexpected errors go to the log file, for help from a distance.
+  window.addEventListener("error", (ev) => S.backend.logError(`UI error: ${ev.message} (${ev.filename}:${ev.lineno})`));
+  window.addEventListener("unhandledrejection", (ev) => S.backend.logError(`Unhandled: ${ev.reason}`));
+  if (status.dataDirMissing) {
+    // Never fall through to the setup: that would start a second, empty vault.
+    S.view = "missing";
+    return render();
+  }
   S.appVersion = await S.backend.appVersion().catch(() => "");
   try {
     S.data = normalizeOpen(JSON.parse((await S.backend.loadOpen()) || "null"));
@@ -104,9 +120,11 @@ async function boot() {
   S.view = status.initialized ? "home" : "setup";
   applySettings();
   render();
-  S.backend.onFileDrop((paths) => {
+  showReloadNote();
+  S.backend.onFileDrop((count) => {
+    if (!count) return;
     if (S.view !== "docs" || !S.vault) return toast("Öffnen Sie „Dokumente“, um Dateien abzulegen.");
-    void S.backend.addDocPaths(paths).then(registerDocs, (e) => toast(errorText(e)));
+    void S.backend.addDroppedDocs().then(registerDocs, (e) => toast(errorText(e)));
   });
   initReminders();
   scheduleUpdateCheck();

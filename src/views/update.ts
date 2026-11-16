@@ -25,6 +25,7 @@ export function vUpdateBanner(): string {
 export function vProgramCard(): string {
   return `<section class="card"><h2>Programm</h2>
     <p class="lead">Installierte Version: ${esc(S.appVersion)}</p>
+    ${S.logDir ? `<p class="hint-line">Protokolldatei für Hilfe aus der Ferne: ${esc(S.logDir)}</p>` : ""}
     <div class="btnrow"><button class="btn sec" data-act="update-check">Nach Updates suchen</button></div>
   </section>`;
 }

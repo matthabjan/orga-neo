@@ -19,7 +19,7 @@ cd src-tauri && cargo test -p orga-core  # storage + encryption tests
 cd src-tauri && cargo test -p orga-core <name>   # single Rust test
 ```
 
-There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu. Pushes to `main` or `develop` and PRs then build an unsigned NSIS installer with `createUpdaterArtifacts` switched off (no signing key there); a `v*` tag instead runs the `release` job, which signs the update with the `TAURI_SIGNING_PRIVATE_KEY*` secrets and publishes a GitHub release with `latest.json` via `tauri-action`. The version must match in `package.json`, `src-tauri/Cargo.toml` and `tauri.conf.json` (`npm run release -- vX.Y.Z` checks). Changes touching only `README.md`/`CLAUDE.md`/`LICENSE` skip CI, a newer push cancels the older run on the same ref, and test installers build without LTO (`CARGO_PROFILE_RELEASE_*` env) while releases keep the `Cargo.toml` profile. Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
+There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu. Pushes to `main` or `develop` and PRs then build an unsigned NSIS installer with `createUpdaterArtifacts` switched off (no signing key there); a `v*` tag instead runs the `release` job, which signs the update with the `TAURI_SIGNING_PRIVATE_KEY*` secrets and publishes a GitHub release with `latest.json` via `tauri-action`. The version lives in `package.json` and `src-tauri/Cargo.toml`; `tauri.conf.json` points at `../package.json` (`npm run release -- vX.Y.Z` checks all of this). Changes touching only `README.md`/`CLAUDE.md`/`LICENSE` skip CI, a newer push cancels the older run on the same ref, and test installers build without LTO (`CARGO_PROFILE_RELEASE_*` env) while releases keep the `Cargo.toml` profile. Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
 
 ## Architecture
 
@@ -27,7 +27,11 @@ There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test
 
 - `src/backend.ts` defines the `Backend` interface — the **only** way the UI touches storage. It has two implementations: `tauriBackend` (calls `invoke`) and `browserBackend` (localStorage, unencrypted, for screen work only). Selected at runtime by checking `__TAURI_INTERNALS__`.
 - `src-tauri/src/lib.rs` is a thin bridge: each `#[tauri::command]` wraps a `Store` method held in a `Mutex`. Slow commands (Argon2, file I/O) are `#[tauri::command(async)]`.
-- `src-tauri/core/` (`orga-core`) is plain Rust with no Tauri dependency: the data folder layout, key slots, XChaCha20-Poly1305 sealing, daily backups. All crypto tests live here.
+- `src-tauri/core/` (`orga-core`) is plain Rust with no Tauri dependency: the data folder layout, key slots, XChaCha20-Poly1305 sealing, daily backups, moving the data folder (`move_to`). All crypto tests live here. Key slots carry their own Argon2 settings (old files fall back to the file-wide `kdf`), and password/code changes rewrite the slots in `backups/vault-*.json` too.
+- The data folder comes from `ORGA_NEO_DIR`, else `settings.json` in the app config dir (chosen in Einstellungen), else `Documents/Orga-Neo`. A chosen folder that is missing at start shows `views/datadir.ts`'s "missing" screen, never the setup.
+- `tauri-plugin-single-instance` (registered first) keeps one copy running; `tauri-plugin-log` writes `Orga-Neo.log` to the app log dir. `Backend.logError()` sends UI errors there — never log secrets, names or contents.
+
+**No command takes a file path from the webview.** File dialogs open in Rust (`tauri_plugin_dialog::DialogExt`), dropped files are kept in Rust (`Dropped`) and fetched with `doc_add_dropped`, and a picked data folder waits in `DataDirs.pending` until `data_dir_apply`. Keep it that way: the webview has no `dialog:` permission.
 
 **Adding a storage operation touches four places:** the `Store` method in `core/src/lib.rs`, a command in `src-tauri/src/lib.rs` *and* its entry in `generate_handler![...]`, the `Backend` interface plus *both* implementations in `backend.ts`. New Tauri window APIs may also need a permission in `src-tauri/capabilities/default.json`; the CSP is in `tauri.conf.json`.
 
