@@ -30,6 +30,12 @@ tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
 tauri-plugin-single-instance = "2.5.5"
 
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dev-dependencies]
+# Same version as tauri-plugin-updater uses, for the update error tests.
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+# The updater builds reqwest without a TLS crypto provider and installs ring itself; the tests do the same.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
 # Optimise dependencies in development too: unoptimised Argon2 takes many seconds.
 [profile.dev.package."*"]
 opt-level = 2

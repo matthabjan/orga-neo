@@ -115,7 +115,8 @@ export function errorText(err: unknown): string {
     inside_current: "Der neue Speicherort darf nicht im bisherigen Ordner liegen.",
     target_has_data: "Im gewählten Ordner liegen bereits Orga-Neo-Daten.",
     dir_fixed: "Der Speicherort ist beim Start von Orga-Neo fest eingestellt worden und kann hier nicht geändert werden.",
-    update_check_failed: "Die Suche nach Updates hat nicht geklappt. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal.",
+    update_offline: "Die Suche nach Updates hat nicht geklappt. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal.",
+    update_check_failed: "Die Suche nach Updates hat nicht geklappt. Bitte versuchen Sie es später noch einmal.",
     update_restart: "Das Update ist installiert. Bitte schließen Sie das Programm und öffnen Sie es wieder.",
     update_failed: "Das Update konnte nicht installiert werden. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal. Ihre Daten sind unverändert.",
   };

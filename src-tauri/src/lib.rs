@@ -18,6 +18,9 @@ use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 /// Largest document the app accepts (bytes).
 const MAX_DOC_SIZE: u64 = 50 * 1024 * 1024;
 
+#[cfg(desktop)]
+mod update;
+
 // Commands marked `async` run on a worker thread, so slow steps (key
 // derivation, large files) do not freeze the window.
 struct AppState(Mutex<Store>);
@@ -438,6 +441,32 @@ fn focus_main(app: &AppHandle) {
     }
 }
 
+/// Look for a newer version on GitHub. `None` when up to date or when no
+/// release is published yet; errors are `update_offline` or `update_check_failed`.
+#[tauri::command(async)]
+async fn update_check(app: AppHandle) -> Result<Option<String>, String> {
+    #[cfg(desktop)]
+    return update::check(&app).await;
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+        Ok(None)
+    }
+}
+
+/// Download and install the update found by `update_check`. Error: `update_failed`.
+#[cfg(desktop)]
+#[tauri::command(async)]
+async fn update_install(app: AppHandle, on_event: tauri::ipc::Channel<update::InstallEvent>) -> Result<(), String> {
+    update::install(&app, on_event).await
+}
+
+#[cfg(not(desktop))]
+#[tauri::command(async)]
+async fn update_install() -> Result<(), String> {
+    Err("update_failed".into())
+}
+
 /// Dropped files stay on this side; the UI only learns how many arrived and
 /// then asks for them with `doc_add_dropped`.
 fn on_window_event(window: &Window, event: &tauri::WindowEvent) {
@@ -465,6 +494,7 @@ pub fn run() {
             {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
+                app.manage(update::PendingUpdate::default());
             }
             let (dir, source) = data_dir(app.handle());
             log::info!("Orga-Neo {} starting, data folder {}", app.package_info().version, dir.display());
@@ -495,7 +525,9 @@ pub fn run() {
             save_text_file,
             data_dir_pick,
             data_dir_apply,
-            data_dir_reset
+            data_dir_reset,
+            update_check,
+            update_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running Orga-Neo");

@@ -17,6 +17,7 @@ npm test                    # vitest: src/io.test.ts (import/export + calendar l
 npx vitest run -t "iCalendar"            # single test/describe by name
 cd src-tauri && cargo test -p orga-core  # storage + encryption tests
 cd src-tauri && cargo test -p orga-core <name>   # single Rust test
+cd src-tauri && cargo test -p orga-neo update    # update error classification (needs libwebkit2gtk-4.1-dev)
 ```
 
 There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu. Pushes to `main` or `develop` and PRs then build an unsigned NSIS installer with `createUpdaterArtifacts` switched off (no signing key there); a `v*` tag instead runs the `release` job, which signs the update with the `TAURI_SIGNING_PRIVATE_KEY*` secrets and publishes a GitHub release with `latest.json` via `tauri-action`. The version lives in `package.json` and `src-tauri/Cargo.toml`; `tauri.conf.json` points at `../package.json` (`npm run release -- vX.Y.Z` checks all of this). Changes touching only `README.md`/`CLAUDE.md`/`LICENSE` skip CI, a newer push cancels the older run on the same ref, and test installers build without LTO (`CARGO_PROFILE_RELEASE_*` env) while releases keep the `Cargo.toml` profile. Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
@@ -50,7 +51,7 @@ The Rust side treats both as opaque JSON strings; schema lives entirely in TypeS
 - Interaction is event delegation: elements carry `data-act="name"` / `<form data-form="name">`, and views register handlers at module load with `act(name, fn)` / `form(name, fn)`. Handlers mutate `S`, call `saveOpen()`/`saveVault()`, then `render()`. Rejected promises from handlers become toasts automatically.
 - Text-entry fields that must not lose focus (note editor, settings inputs, search `#q`) are handled in `main.ts`'s `input`/`change` listeners and update the model/DOM without a full re-render — follow that path for new live-editing inputs.
 - Dialogs: `openDialog(html)` into the shared `<dialog id="dlg">`; `confirmDialog()` for destructive actions.
-- Updates: `views/update.ts` (banner under the top bar, "Programm" card) goes through `checkUpdate`/`installUpdate` on `Backend`; the browser stand-in is a no-op. The check runs in Rust (`tauri-plugin-updater`), so the CSP stays closed to the network.
+- Updates: `views/update.ts` (banner under the top bar, "Programm" card) goes through `checkUpdate`/`installUpdate` on `Backend`; the browser stand-in is a no-op. Check and install are our own commands (`update_check`, `update_install` in `src-tauri/src/update.rs`, wrapping `tauri-plugin-updater`'s Rust API), so the CSP stays closed to the network and the webview has no `updater:` permission. `update.rs` sorts check errors: `ReleaseNotFound` (the plugin's result for any non-2xx answer, e.g. the 404 while no release exists) counts as "no update", connection failures and timeouts become `update_offline`, everything else `update_check_failed` with details in the log. Its tests use only a local socket, but the `orga-neo` crate needs the WebKitGTK dev packages to build, so CI does not run them (`cd src-tauri && cargo test -p orga-neo update`).
 
 ### Domain logic
 

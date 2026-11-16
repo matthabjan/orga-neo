@@ -32,7 +32,7 @@ export function vProgramCard(): string {
 
 const updateBlocked = () => S.view === "setup" || !!document.querySelector("dialog[open]");
 
-/** Look for an update once, shortly after the start. Stays silent when offline. */
+/** Look for an update once, shortly after the start. Stays silent on every error (offline, no release). */
 export function scheduleUpdateCheck() {
   if (S.backend.kind !== "tauri" || import.meta.env.DEV) return;
   window.setTimeout(async () => {
