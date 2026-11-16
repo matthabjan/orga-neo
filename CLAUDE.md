@@ -19,7 +19,7 @@ cd src-tauri && cargo test -p orga-core  # storage + encryption tests
 cd src-tauri && cargo test -p orga-core <name>   # single Rust test
 ```
 
-There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu. Pushes to `main` and PRs then build an unsigned NSIS installer with `createUpdaterArtifacts` switched off (no signing key there); a `v*` tag instead runs the `release` job, which signs the update with the `TAURI_SIGNING_PRIVATE_KEY*` secrets and publishes a GitHub release with `latest.json` via `tauri-action`. The version must match in `package.json`, `src-tauri/Cargo.toml` and `tauri.conf.json` (`npm run release -- vX.Y.Z` checks). Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
+There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu. Pushes to `main` or `develop` and PRs then build an unsigned NSIS installer with `createUpdaterArtifacts` switched off (no signing key there); a `v*` tag instead runs the `release` job, which signs the update with the `TAURI_SIGNING_PRIVATE_KEY*` secrets and publishes a GitHub release with `latest.json` via `tauri-action`. The version must match in `package.json`, `src-tauri/Cargo.toml` and `tauri.conf.json` (`npm run release -- vX.Y.Z` checks). Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
 
 ## Architecture
 

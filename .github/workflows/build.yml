@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
         run: cargo test -p orga-core
         working-directory: src-tauri
 
-  # Pushes to main and pull requests: an unsigned test installer. Pull requests
+  # Pushes to main/develop and pull requests: an unsigned test installer. Pull requests
   # from forks get no secrets, so the updater artifacts (which need the signing
   # key) are switched off here.
   windows:
