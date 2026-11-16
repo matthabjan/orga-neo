@@ -1,4 +1,4 @@
-// Einstellungen: Anpassen, Kategorien, Sicherheit, Daten.
+// Einstellungen: Anpassen, Kategorien, Sicherheit, Daten, Programm.
 
 import type { Codes } from "../backend";
 import { ic } from "../icons";
@@ -7,6 +7,7 @@ import { ALL_AREAS, AreaId, BDAY_CAT, CAT_COLORS, Scheme, TextSize, newId } from
 import { addSampleOpen, addSampleVault } from "../sample";
 import { AREAS, S, act, appName, applySettings, closeDialog, confirmDialog, errorText, esc, form, openDialog, pickTextFiles, render, saveOpen, saveVault, toast } from "../state";
 import { exportItems } from "./docs";
+import { vProgramCard } from "./update";
 
 const SIZES: [TextSize, string][] = [["m", "Normal"], ["l", "Groß"], ["xl", "Sehr groß"]];
 const SCHEMES: [Scheme, string, string][] = [
@@ -83,6 +84,8 @@ export function vSettings(): string {
     <p class="hint-line">${ic("folder")}Speicherort: ${esc(S.dataDir)}</p>
     <div class="btnrow"><button class="btn ghost" data-act="load-sample">Beispieldaten zum Ausprobieren laden</button></div>
   </section>
+
+  ${vProgramCard()}
   </div>`;
 }
 

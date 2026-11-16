@@ -13,6 +13,7 @@ import { vPasswords } from "./views/passwords";
 import { checkReminders, initReminders } from "./views/reminders";
 import { settingInput, vSettings } from "./views/settings";
 import { vSetup } from "./views/setup";
+import { scheduleUpdateCheck } from "./views/update";
 import { lockVault, vGate } from "./views/vault";
 
 const root = document.getElementById("root")!;
@@ -92,6 +93,7 @@ async function boot() {
   S.backend = await createBackend();
   const status = await S.backend.status();
   S.dataDir = status.dataDir;
+  S.appVersion = await S.backend.appVersion().catch(() => "");
   try {
     S.data = normalizeOpen(JSON.parse((await S.backend.loadOpen()) || "null"));
   } catch {
@@ -107,6 +109,7 @@ async function boot() {
     void S.backend.addDocPaths(paths).then(registerDocs, (e) => toast(errorText(e)));
   });
   initReminders();
+  scheduleUpdateCheck();
   // Redraw around midnight so "Heute" stays right, and when the window is shown again.
   setInterval(() => !document.querySelector("dialog[open]") && !document.activeElement?.matches("input,textarea,select") && S.view === "home" && render(), 10 * 60_000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && checkReminders());

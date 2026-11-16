@@ -4,6 +4,7 @@ import { ic } from "../icons";
 import { AreaId, addDays, ageOn, fmt, initials, occurrences, relDay, relLower, startOfDay } from "../model";
 import { AREAS, S, act, appName, esc, go, render } from "../state";
 import { catStyle } from "./cal";
+import { vUpdateBanner } from "./update";
 import { lockVault } from "./vault";
 
 export function shell(inner: string): string {
@@ -16,6 +17,7 @@ export function shell(inner: string): string {
     ${S.vault ? `<button class="plain" data-act="lock-vault" title="Passwörter und Dokumente wieder verschließen">${ic("lock")}Tresor schließen</button>` : ""}
     <button class="plain" data-act="go" data-view="settings" ${S.view === "settings" ? 'aria-current="page"' : ""}>${ic("gear")}Einstellungen</button>
   </header>
+  ${vUpdateBanner()}
   <main class="sheet" id="main" tabindex="-1">${inner}</main></div>`;
 }
 

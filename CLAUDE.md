@@ -19,7 +19,7 @@ cd src-tauri && cargo test -p orga-core  # storage + encryption tests
 cd src-tauri && cargo test -p orga-core <name>   # single Rust test
 ```
 
-There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu, then builds an NSIS Windows installer. Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
+There is no linter configured. CI (`.github/workflows/build.yml`) runs `npm test`, `npm run build`, and `cargo test -p orga-core` on Ubuntu. Pushes to `main` and PRs then build an unsigned NSIS installer with `createUpdaterArtifacts` switched off (no signing key there); a `v*` tag instead runs the `release` job, which signs the update with the `TAURI_SIGNING_PRIVATE_KEY*` secrets and publishes a GitHub release with `latest.json` via `tauri-action`. The version must match in `package.json`, `src-tauri/Cargo.toml` and `tauri.conf.json` (`npm run release -- vX.Y.Z` checks). Set `ORGA_NEO_DIR` to point the desktop app at a throwaway data folder instead of `Documents/Orga-Neo`.
 
 ## Architecture
 
@@ -46,6 +46,7 @@ The Rust side treats both as opaque JSON strings; schema lives entirely in TypeS
 - Interaction is event delegation: elements carry `data-act="name"` / `<form data-form="name">`, and views register handlers at module load with `act(name, fn)` / `form(name, fn)`. Handlers mutate `S`, call `saveOpen()`/`saveVault()`, then `render()`. Rejected promises from handlers become toasts automatically.
 - Text-entry fields that must not lose focus (note editor, settings inputs, search `#q`) are handled in `main.ts`'s `input`/`change` listeners and update the model/DOM without a full re-render — follow that path for new live-editing inputs.
 - Dialogs: `openDialog(html)` into the shared `<dialog id="dlg">`; `confirmDialog()` for destructive actions.
+- Updates: `views/update.ts` (banner under the top bar, "Programm" card) goes through `checkUpdate`/`installUpdate` on `Backend`; the browser stand-in is a no-op. The check runs in Rust (`tauri-plugin-updater`), so the CSP stays closed to the network.
 
 ### Domain logic
 
