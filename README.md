@@ -24,7 +24,8 @@ automated tests but has not had an independent security review.
 ## How data is stored
 
 Everything stays on the PC, in `Documents/Orga-Neo` (set `ORGA_NEO_DIR` to use
-another folder). Nothing is sent anywhere.
+another folder). Your data is never sent anywhere; the only network access is the update
+check, which downloads from GitHub.
 
 | File | Content | Encrypted |
 |---|---|---|
@@ -73,14 +74,43 @@ In the browser (`npm run dev`) a stand-in keeps data in `localStorage`
 
 ## Windows installer
 
-Every push to `main` builds an installer on GitHub Actions. Download it from
-the run's **Artifacts** (`orga-neo-windows-installer`). The installer is not
+Every push to `main` builds a test installer on GitHub Actions. Download it
+from the run's **Artifacts** (`orga-neo-windows-installer`). Released versions
+are on the [Releases](https://github.com/matthabjan/orga-neo/releases) page. The installer is not
 code-signed, so Windows shows an "unknown publisher" warning once.
+
+## Updates
+
+The installed app looks for a new version about ten seconds after it starts
+(and when the user clicks **Einstellungen → Programm → Nach Updates suchen**).
+It reads `latest.json` from the newest GitHub release; the download is checked
+against the public key in `tauri.conf.json` before it is installed. Offline,
+nothing happens. The browser stand-in never looks for updates.
+
+## Releasing a new version
+
+1. Raise the version in all three files: `package.json`,
+   `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
+   `npm run release -- v0.2.0` checks that they match the tag.
+2. Commit, then tag with a short German note for the release page and push:
+
+   ```sh
+   git tag -a v0.2.0 -m "Was ist neu"
+   git push --follow-tags
+   ```
+
+GitHub Actions builds the installer, signs the update with the
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets
+and publishes the release "Orga-Neo v0.2.0" with the tag message as its
+notes. Installed copies pick it up on their next start.
+
+**Keep the private signing key and its password safe.** If either is lost,
+installed copies can no longer be updated: everyone would have to download and
+install a new version by hand.
 
 ## Not built yet
 
 - Start with Windows and keep reminding from the system tray
-- In-app updates
 - Choosing the data folder in the settings
 
 ## Credits

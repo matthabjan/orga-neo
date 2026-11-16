@@ -7,6 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only by default; only the release job may write.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -27,8 +31,12 @@ jobs:
         run: cargo test -p orga-core
         working-directory: src-tauri
 
+  # Pushes to main and pull requests: an unsigned test installer. Pull requests
+  # from forks get no secrets, so the updater artifacts (which need the signing
+  # key) are switched off here.
   windows:
     needs: test
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -41,10 +49,58 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      - name: Versions agree
+        run: npm run release
       - name: Build installer
-        run: npm run tauri build -- --bundles nsis
+        shell: bash
+        run: npm run tauri build -- --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v7
         with:
           name: orga-neo-windows-installer
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+  # Tags v*: build, sign the update and publish a GitHub release with latest.json.
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Versions match the tag
+        run: npm run release
+      - name: Release notes from the tag message
+        id: notes
+        shell: bash
+        run: |
+          # checkout may leave a lightweight copy of the tag; fetch the annotated one
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          {
+            echo "body<<EOF_NOTES"
+            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Orga-Neo ${{ github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis
+          updaterJsonPreferNsis: true

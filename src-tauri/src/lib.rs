@@ -220,6 +220,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Updates come from GitHub releases; the check runs in Rust, so the
+            // window's CSP stays closed to the network.
+            #[cfg(desktop)]
+            {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             let dir = data_dir(app);
             app.manage(AppState(Mutex::new(Store::new(dir))));
             Ok(())

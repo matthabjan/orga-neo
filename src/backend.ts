@@ -20,6 +20,9 @@ export interface Status {
   dataDir: string;
 }
 
+/** Called while an update downloads: percent 0–100, or null while the size is unknown. */
+export type UpdateProgress = (percent: number | null, phase: "download" | "install") => void;
+
 export interface Backend {
   kind: "tauri" | "browser";
   status(): Promise<Status>;
@@ -46,6 +49,12 @@ export interface Backend {
   saveTextFile(fileName: string, contents: string): Promise<boolean>;
   onFileDrop(handler: (paths: string[]) => void): void;
   bringToFront(): Promise<void>;
+  /** Version of the running program, e.g. "0.2.0". */
+  appVersion(): Promise<string>;
+  /** Ask GitHub for a newer version. Resolves its version number, or null when up to date. Throws "update_check_failed". */
+  checkUpdate(): Promise<string | null>;
+  /** Download and install the update found by checkUpdate(), then restart. Throws "update_failed", or "update_restart" when only the restart failed. */
+  installUpdate(onProgress: UpdateProgress): Promise<void>;
 }
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -56,6 +65,9 @@ async function tauriBackend(): Promise<Backend> {
   const { getCurrentWebview } = await import("@tauri-apps/api/webview");
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const ext = (name: string) => (name.includes(".") ? name.split(".").pop()! : "");
+  // Loaded on first use, so the start of the app does not wait for them.
+  const updater = () => import("@tauri-apps/plugin-updater");
+  let pending: import("@tauri-apps/plugin-updater").Update | null = null;
   return {
     kind: "tauri",
     status: () => invoke("status"),
@@ -111,6 +123,48 @@ async function tauriBackend(): Promise<Backend> {
       await w.unminimize();
       await w.show();
       await w.setFocus();
+    },
+    async appVersion() {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      return getVersion();
+    },
+    async checkUpdate() {
+      try {
+        const found = await (await updater()).check();
+        pending?.close().catch(() => {});
+        pending = found;
+        return found?.version ?? null;
+      } catch (err) {
+        console.error("Update check failed:", err);
+        throw "update_check_failed";
+      }
+    },
+    async installUpdate(onProgress) {
+      if (!pending) throw "update_failed";
+      let total = 0;
+      let done = 0;
+      try {
+        await pending.downloadAndInstall((ev) => {
+          if (ev.event === "Started") {
+            total = ev.data.contentLength ?? 0;
+            onProgress(total ? 0 : null, "download");
+          } else if (ev.event === "Progress") {
+            done += ev.data.chunkLength;
+            onProgress(total ? Math.min(100, Math.floor((done / total) * 100)) : null, "download");
+          } else onProgress(100, "install");
+        });
+      } catch (err) {
+        console.error("Update failed:", err);
+        throw "update_failed";
+      }
+      // On Windows the installer has already closed the app at this point.
+      try {
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      } catch (err) {
+        console.error("Restart after update failed:", err);
+        throw "update_restart";
+      }
     },
   };
 }
@@ -228,6 +282,12 @@ function browserBackend(): Backend {
     onFileDrop() {},
     async bringToFront() {
       window.focus();
+    },
+    // No updates in the browser preview.
+    appVersion: async () => "Vorschau im Browser",
+    checkUpdate: async () => null,
+    async installUpdate() {
+      throw "update_failed";
     },
   };
 }

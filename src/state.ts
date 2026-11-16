@@ -9,6 +9,8 @@ export type View = "setup" | "home" | "settings" | AreaId;
 export const S = {
   backend: null as unknown as Backend,
   dataDir: "",
+  /** Version of the running program, read from the app at start. */
+  appVersion: "",
   data: emptyOpen() as OpenData,
   /** Passwords and document list; null while locked. */
   vault: null as VaultData | null,
@@ -24,6 +26,8 @@ export const S = {
   docFolder: "",
   setup: { step: 1, firstName: "", sample: false, codes: null as Codes | null },
   saved: true,
+  /** A newer version found on GitHub; `hidden` after "Später" until the next start. */
+  update: null as { version: string; hidden: boolean } | null,
 };
 
 export const AREAS: Record<AreaId, { label: string; icon: string; c: string; t: string; locked: boolean }> = {
@@ -80,6 +84,14 @@ export function saveOpen() {
   openTimer = window.setTimeout(() => void guard(S.backend.saveOpen(JSON.stringify(S.data))), 250);
 }
 
+/** Write a pending save now (before the app closes for an update). */
+export async function flushOpen() {
+  if (S.saved) return;
+  clearTimeout(openTimer);
+  await S.backend.saveOpen(JSON.stringify(S.data));
+  markSaved(true);
+}
+
 /** Save passwords and the document list (encrypted). */
 export async function saveVault() {
   if (!S.vault) return;
@@ -96,6 +108,9 @@ export function errorText(err: unknown): string {
     too_large: "Das Dokument ist größer als 50 MB.",
     corrupt: "Die Datei ist beschädigt und kann nicht gelesen werden.",
     not_initialized: "Orga-Neo ist noch nicht eingerichtet.",
+    update_check_failed: "Die Suche nach Updates hat nicht geklappt. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal.",
+    update_restart: "Das Update ist installiert. Bitte schließen Sie das Programm und öffnen Sie es wieder.",
+    update_failed: "Das Update konnte nicht installiert werden. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal. Ihre Daten sind unverändert.",
   };
   return known[code] ?? code.replace(/^io: /, "");
 }

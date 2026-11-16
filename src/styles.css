@@ -185,3 +185,10 @@ iframe.preview { height: 52vh; }
   .split.docsplit, .schemes { grid-template-columns: 1fr; }
   .steps li { font-size: 0; gap: 0; }
 }
+
+/* Update banner below the top bar */
+.upd { display: flex; align-items: center; gap: .8rem 1rem; flex-wrap: wrap; padding: .9rem max(2.4rem, calc((100vw - 1520px) / 2)); background: var(--slate-t); border-bottom: 2px solid var(--line-2); font-size: 1.1rem; }
+.upd-t { font-weight: 700; }
+.upd-b { display: flex; gap: .7rem; flex-wrap: wrap; }
+.upd-b[hidden] { display: none; }
+:root[data-scheme="kontrast"] .upd { border-bottom-color: #000; }
