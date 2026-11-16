@@ -21,7 +21,7 @@ export function vSetup(): string {
   else if (st.step === 2)
     body = `<form data-form="setup-master" novalidate><h1>Ihr Master-Passwort</h1>
       <p class="lead">Es schützt Ihre Passwörter und Dokumente. Es ist das einzige Passwort, das Sie sich künftig merken müssen. Gut geeignet sind drei oder vier Wörter hintereinander, zum Beispiel „Garten-Mond-Kiesel-71“.</p>
-      <div class="field"><label for="su-a">Master-Passwort</label><div class="pw-wrap"><input class="inp big" id="su-a" name="a" type="password" autocomplete="new-password" autofocus><button class="btn ghost" type="button" data-act="toggle-secret" data-for="su-a">${ic("eye")}<span>Zeigen</span></button></div><div class="hint">Mindestens 10 Zeichen</div></div>
+      <div class="field"><label for="su-a">Master-Passwort</label><div class="pw-wrap"><input class="inp big" id="su-a" name="a" type="password" autocomplete="new-password" autofocus><button class="btn ghost" type="button" data-act="toggle-secret" data-for="su-a su-b">${ic("eye")}<span>Zeigen</span></button></div><div class="hint">Mindestens 10 Zeichen</div></div>
       <div class="field"><label for="su-b">Noch einmal eingeben</label><input class="inp big" id="su-b" name="b" type="password" autocomplete="new-password"></div>
       <p class="err" id="form-err" role="alert"></p>
       <div class="btnrow"><button type="button" class="btn ghost big" data-act="setup-back">Zurück</button><button class="btn pri big" style="--accent:var(--ink)">Weiter</button></div></form>`;

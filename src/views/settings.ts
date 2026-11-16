@@ -196,7 +196,7 @@ act("change-master", () => {
   if (!needVault()) return;
   openDialog(`<form data-form="master" novalidate>
     <div class="dh"><h2 id="dlg-title">Master-Passwort ändern</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
-    <div class="db"><div class="field"><label for="m1">Neues Master-Passwort</label><input class="inp" id="m1" name="a" type="password" autocomplete="new-password" autofocus><div class="hint">Mindestens 10 Zeichen. Gut merkbar sind drei oder vier Wörter hintereinander.</div></div>
+    <div class="db"><div class="field"><label for="m1">Neues Master-Passwort</label><div class="pw-wrap"><input class="inp" id="m1" name="a" type="password" autocomplete="new-password" autofocus><button class="btn ghost" type="button" data-act="toggle-secret" data-for="m1 m2">${ic("eye")}<span>Zeigen</span></button></div><div class="hint">Mindestens 10 Zeichen. Gut merkbar sind drei oder vier Wörter hintereinander.</div></div>
       <div class="field"><label for="m2">Noch einmal eingeben</label><input class="inp" id="m2" name="b" type="password" autocomplete="new-password"></div>
       <p class="err" id="form-err" role="alert"></p></div>
     <div class="df"><button type="button" class="btn ghost" data-act="close">Abbrechen</button><button class="btn pri" style="--accent:var(--ink)">Ändern</button></div></form>`);

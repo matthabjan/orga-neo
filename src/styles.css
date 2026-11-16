@@ -100,6 +100,8 @@ iframe.preview { height: 52vh; }
 .gate h1 { font-size: 2rem; margin: 1rem 0 .3rem; letter-spacing: -.015em; }
 .gate p { color: var(--ink-2); margin: 0 0 1.6rem; }
 .gate .alt { margin: 1.2rem 0 0; }
+/* Edge/WebView2 adds its own small eye to password fields; the labelled "Zeigen" button replaces it. */
+input[type="password"]::-ms-reveal, input[type="password"]::-ms-clear { display: none; }
 .pw-wrap { position: relative; }
 .pw-wrap .inp { padding-right: 8rem; }
 .pw-wrap .btn { position: absolute; right: .35rem; top: 50%; transform: translateY(-50%); min-height: 2.5rem; padding: .3rem .8rem; }

@@ -36,10 +36,11 @@ act("toggle-code", () => {
   useCode = !useCode;
   render();
 });
+/** Show or hide the password fields named in data-for (space-separated ids, e.g. a field and its repetition). */
 act("toggle-secret", (el) => {
-  const input = document.getElementById(el.dataset.for!) as HTMLInputElement;
-  const show = input.type === "password";
-  input.type = show ? "text" : "password";
+  const inputs = el.dataset.for!.split(" ").map((id) => document.getElementById(id) as HTMLInputElement | null);
+  const show = inputs[0]?.type === "password";
+  for (const input of inputs) if (input) input.type = show ? "text" : "password";
   const label = el.querySelector("span");
   if (label) label.textContent = show ? "Verbergen" : "Zeigen";
 });
