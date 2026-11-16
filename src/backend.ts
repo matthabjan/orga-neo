@@ -64,7 +64,7 @@ export interface Backend {
   bringToFront(): Promise<void>;
   /** Version of the running program, e.g. "0.2.0". */
   appVersion(): Promise<string>;
-  /** Ask GitHub for a newer version. Resolves its version number, or null when up to date. Throws "update_check_failed". */
+  /** Ask GitHub for a newer version. Resolves its version number, or null when up to date or no release exists yet. Throws "update_offline" or "update_check_failed". */
   checkUpdate(): Promise<string | null>;
   /** Download and install the update found by checkUpdate(), then restart. Throws "update_failed", or "update_restart" when only the restart failed. */
   installUpdate(onProgress: UpdateProgress): Promise<void>;
@@ -82,7 +82,7 @@ const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 async function tauriBackend(): Promise<Backend> {
   // File dialogs open on the Rust side: no command takes a path from here.
-  const { invoke } = await import("@tauri-apps/api/core");
+  const { Channel, invoke } = await import("@tauri-apps/api/core");
   const { listen } = await import("@tauri-apps/api/event");
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const log = await import("@tauri-apps/plugin-log");
@@ -90,9 +90,6 @@ async function tauriBackend(): Promise<Backend> {
     console.error(message);
     void log.error(message).catch(() => {});
   };
-  // Loaded on first use, so the start of the app does not wait for them.
-  const updater = () => import("@tauri-apps/plugin-updater");
-  let pending: import("@tauri-apps/plugin-updater").Update | null = null;
   return {
     kind: "tauri",
     status: () => invoke("status"),
@@ -130,35 +127,22 @@ async function tauriBackend(): Promise<Backend> {
       const { getVersion } = await import("@tauri-apps/api/app");
       return getVersion();
     },
-    async checkUpdate() {
-      try {
-        const found = await (await updater()).check();
-        pending?.close().catch(() => {});
-        pending = found;
-        return found?.version ?? null;
-      } catch (err) {
-        logError(`Update check failed: ${err}`);
-        throw "update_check_failed";
-      }
-    },
+    // Check and install run in Rust, which sorts the errors and logs the details.
+    checkUpdate: () => invoke("update_check"),
     async installUpdate(onProgress) {
-      if (!pending) throw "update_failed";
       let total = 0;
       let done = 0;
-      try {
-        await pending.downloadAndInstall((ev) => {
-          if (ev.event === "Started") {
-            total = ev.data.contentLength ?? 0;
-            onProgress(total ? 0 : null, "download");
-          } else if (ev.event === "Progress") {
-            done += ev.data.chunkLength;
-            onProgress(total ? Math.min(100, Math.floor((done / total) * 100)) : null, "download");
-          } else onProgress(100, "install");
-        });
-      } catch (err) {
-        logError(`Update failed: ${err}`);
-        throw "update_failed";
-      }
+      const onEvent = new Channel<{ event: "started"; total: number | null } | { event: "progress"; chunk: number } | { event: "installing" }>();
+      onEvent.onmessage = (ev) => {
+        if (ev.event === "started") {
+          total = ev.total ?? 0;
+          onProgress(total ? 0 : null, "download");
+        } else if (ev.event === "progress") {
+          done += ev.chunk;
+          onProgress(total ? Math.min(100, Math.floor((done / total) * 100)) : null, "download");
+        } else onProgress(100, "install");
+      };
+      await invoke("update_install", { onEvent });
       // On Windows the installer has already closed the app at this point.
       try {
         const { relaunch } = await import("@tauri-apps/plugin-process");

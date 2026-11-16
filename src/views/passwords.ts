@@ -37,7 +37,7 @@ function showPw(p: Pw) {
   <div class="db">
     ${val("Benutzername", p.user)}
     <div class="field"><span class="lb">Passwort</span><div class="val"><span class="v secret" id="pwv" data-pw="${esc(p.pw)}">••••••••••••</span>
-      <button class="btn ghost" data-act="reveal-pw">${ic("eye")}<span>Anzeigen</span></button><button class="btn pri" autofocus style="--accent:var(--green)" data-act="copy" data-text="${esc(p.pw)}" data-secret="1">${ic("copy")}Kopieren</button></div></div>
+      <button class="btn ghost" data-act="reveal-pw">${ic("eye")}<span>Zeigen</span></button><button class="btn pri" autofocus style="--accent:var(--green)" data-act="copy" data-text="${esc(p.pw)}" data-secret="1">${ic("copy")}Kopieren</button></div></div>
     ${val("Webseite", p.site)}
     ${p.note ? `<div class="field"><span class="lb">Notiz</span><div class="note">${esc(p.note)}</div></div>` : ""}
   </div>
@@ -81,7 +81,7 @@ act("reveal-pw", (el) => {
   const hidden = v.textContent!.startsWith("•");
   v.textContent = hidden ? v.dataset.pw! : "••••••••••••";
   v.classList.toggle("secret", !hidden);
-  el.querySelector("span")!.textContent = hidden ? "Verbergen" : "Anzeigen";
+  el.querySelector("span")!.textContent = hidden ? "Verbergen" : "Zeigen";
 });
 act("copy", async (el) => {
   const text = el.dataset.text ?? "";

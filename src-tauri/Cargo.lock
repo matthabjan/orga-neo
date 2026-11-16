@@ -2712,11 +2712,13 @@ dependencies = [
 
 [[package]]
 name = "orga-neo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "log",
  "orga-core",
  "rand",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",
