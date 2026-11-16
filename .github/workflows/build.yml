@@ -1,11 +1,21 @@
 name: Build
 
+# Documentation-only changes skip CI. Tag pushes always run: GitHub does not
+# apply path filters to tags.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ["v*"]
+    paths-ignore: ["README.md", "CLAUDE.md", "LICENSE"]
   pull_request:
+    paths-ignore: ["README.md", "CLAUDE.md", "LICENSE"]
   workflow_dispatch:
+
+# A newer push to the same branch or PR stops the run still going for the
+# older one. Release runs (tags) are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 # Read-only by default; only the release job may write.
 permissions:
@@ -31,13 +41,18 @@ jobs:
         run: cargo test -p orga-core
         working-directory: src-tauri
 
-  # Pushes to main and pull requests: an unsigned test installer. Pull requests
+  # Pushes to main/develop and pull requests: an unsigned test installer. Pull requests
   # from forks get no secrets, so the updater artifacts (which need the signing
   # key) are switched off here.
   windows:
     needs: test
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: windows-latest
+    # A test installer only needs to work, not to be small: skip link-time
+    # optimisation and compile in parallel. Releases keep Cargo.toml's settings.
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

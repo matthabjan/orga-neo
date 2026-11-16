@@ -23,9 +23,14 @@ automated tests but has not had an independent security review.
 
 ## How data is stored
 
-Everything stays on the PC, in `Documents/Orga-Neo` (set `ORGA_NEO_DIR` to use
-another folder). Your data is never sent anywhere; the only network access is the update
-check, which downloads from GitHub.
+Everything stays on the PC, by default in `Documents/Orga-Neo`. Another folder,
+for example on a USB stick, can be chosen under **Einstellungen → Daten →
+Speicherort ändern**: the data is copied there, checked, and only then removed
+from the old folder. A folder that already holds Orga-Neo data can be opened
+instead. If the chosen folder is not reachable at start, the app says so
+rather than starting a new, empty setup. For testing, `ORGA_NEO_DIR` overrides
+the setting. Your data is never sent anywhere; the only network access is the
+update check, which downloads from GitHub.
 
 | File | Content | Encrypted |
 |---|---|---|
@@ -33,6 +38,15 @@ check, which downloads from GitHub.
 | `vault.json` | passwords, document list and folders | yes |
 | `docs/<id>.enc` | one file per document | yes |
 | `backups/` | daily copies of the two JSON files (14 kept) | as the originals |
+
+Changing the master password or printing a new emergency sheet also updates
+the copies in `backups/`, so old passwords and codes stop working there too.
+
+Outside the data folder the app keeps two small files: `settings.json` with a
+chosen data folder (in `%APPDATA%\io.github.matthabjan.organeo`), and a log
+file for help from a distance (in `%LOCALAPPDATA%\io.github.matthabjan.organeo\logs`,
+at most 1 MB, three old copies kept). The log never contains passwords, names
+or contents.
 
 A random 256-bit key encrypts the vault and every document with
 XChaCha20-Poly1305. That key is stored three times, each copy wrapped with a
@@ -89,19 +103,19 @@ nothing happens. The browser stand-in never looks for updates.
 
 ## Releasing a new version
 
-1. Raise the version in all three files: `package.json`,
-   `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
-   `npm run release -- v0.2.0` checks that they match the tag.
+1. Raise the version in `package.json` (`npm version 0.3.0 --no-git-tag-version`)
+   and in `src-tauri/Cargo.toml`. `tauri.conf.json` reads it from
+   `package.json`. `npm run release -- v0.3.0` checks that they match the tag.
 2. Commit, then tag with a short German note for the release page and push:
 
    ```sh
-   git tag -a v0.2.0 -m "Was ist neu"
+   git tag -a v0.3.0 -m "Was ist neu"
    git push --follow-tags
    ```
 
 GitHub Actions builds the installer, signs the update with the
 `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets
-and publishes the release "Orga-Neo v0.2.0" with the tag message as its
+and publishes the release "Orga-Neo v0.3.0" with the tag message as its
 notes. Installed copies pick it up on their next start.
 
 **Keep the private signing key and its password safe.** If either is lost,
@@ -111,7 +125,6 @@ install a new version by hand.
 ## Not built yet
 
 - Start with Windows and keep reminding from the system tray
-- Choosing the data folder in the settings
 
 ## Credits
 

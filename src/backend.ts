@@ -18,6 +18,18 @@ export interface Status {
   initialized: boolean;
   unlocked: boolean;
   dataDir: string;
+  /** Set by ORGA_NEO_DIR; the settings cannot change it. */
+  dataDirFixed: boolean;
+  /** The chosen data folder is not reachable (e.g. USB stick unplugged). */
+  dataDirMissing: boolean;
+  /** Folder with the log file ("" in the browser). */
+  logDir: string;
+}
+
+/** A folder picked as new data folder. `path` is for display only. */
+export interface PickedDir {
+  path: string;
+  hasData: boolean;
 }
 
 /** Called while an update downloads: percent 0–100, or null while the size is unknown. */
@@ -38,8 +50,8 @@ export interface Backend {
   vaultNewCodes(): Promise<Codes>;
   /** Let the user pick files and store them encrypted. */
   pickAndAddDocs(): Promise<AddedDoc[]>;
-  /** Store files dropped onto the window (desktop app only). */
-  addDocPaths(paths: string[]): Promise<AddedDoc[]>;
+  /** Store the files last dropped onto the window (desktop app only). */
+  addDroppedDocs(): Promise<AddedDoc[]>;
   docRead(id: string): Promise<Uint8Array>;
   docDelete(id: string): Promise<void>;
   /** Save a decrypted copy. Resolves false when the user cancels. */
@@ -47,7 +59,8 @@ export interface Backend {
   /** Write readable copies of all given documents into a folder the user picks. Resolves the number written, or -1 on cancel. */
   docExportAll(items: { id: string; folders: string[]; file: string }[]): Promise<number>;
   saveTextFile(fileName: string, contents: string): Promise<boolean>;
-  onFileDrop(handler: (paths: string[]) => void): void;
+  /** Called with the number of files dropped onto the window. The paths stay in Rust. */
+  onFileDrop(handler: (count: number) => void): void;
   bringToFront(): Promise<void>;
   /** Version of the running program, e.g. "0.2.0". */
   appVersion(): Promise<string>;
@@ -55,16 +68,28 @@ export interface Backend {
   checkUpdate(): Promise<string | null>;
   /** Download and install the update found by checkUpdate(), then restart. Throws "update_failed", or "update_restart" when only the restart failed. */
   installUpdate(onProgress: UpdateProgress): Promise<void>;
+  /** Let the user pick a new data folder. Resolves null on cancel. */
+  pickDataDir(): Promise<PickedDir | null>;
+  /** Switch to the picked folder: "move" takes the data along, "use" opens the data already there. */
+  applyDataDir(mode: "move" | "use"): Promise<void>;
+  /** Go back to the standard folder Documents/Orga-Neo. Nothing is moved. */
+  resetDataDir(): Promise<void>;
+  /** Write an error to the log file. Never pass secrets or personal data. */
+  logError(message: string): void;
 }
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 async function tauriBackend(): Promise<Backend> {
+  // File dialogs open on the Rust side: no command takes a path from here.
   const { invoke } = await import("@tauri-apps/api/core");
-  const dialog = await import("@tauri-apps/plugin-dialog");
-  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  const { listen } = await import("@tauri-apps/api/event");
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const ext = (name: string) => (name.includes(".") ? name.split(".").pop()! : "");
+  const log = await import("@tauri-apps/plugin-log");
+  const logError = (message: string) => {
+    console.error(message);
+    void log.error(message).catch(() => {});
+  };
   // Loaded on first use, so the start of the app does not wait for them.
   const updater = () => import("@tauri-apps/plugin-updater");
   let pending: import("@tauri-apps/plugin-updater").Update | null = null;
@@ -81,42 +106,19 @@ async function tauriBackend(): Promise<Backend> {
     vaultSave: (json) => invoke("vault_save", { json }),
     vaultChangePassword: (password) => invoke("vault_change_password", { password }),
     vaultNewCodes: () => invoke("vault_new_codes"),
-    async pickAndAddDocs() {
-      const picked = await dialog.open({ multiple: true, title: "Dokumente auswählen" });
-      if (!picked) return [];
-      return invoke("doc_add_paths", { paths: Array.isArray(picked) ? picked : [picked] });
-    },
-    addDocPaths: (paths) => invoke("doc_add_paths", { paths }),
+    pickAndAddDocs: () => invoke("doc_pick_and_add"),
+    addDroppedDocs: () => invoke("doc_add_dropped"),
     async docRead(id) {
       return new Uint8Array(await invoke<ArrayBuffer>("doc_read", { id }));
     },
     docDelete: (id) => invoke("doc_delete", { id }),
-    async docExport(id, fileName) {
-      const e = ext(fileName);
-      const path = await dialog.save({
-        defaultPath: fileName,
-        filters: e ? [{ name: e.toUpperCase(), extensions: [e] }] : undefined,
-      });
-      if (!path) return false;
-      await invoke("doc_export", { id, path });
-      return true;
-    },
+    docExport: (id, fileName) => invoke("doc_export", { id, fileName }),
     async docExportAll(items) {
-      const dir = await dialog.open({ directory: true, title: "Ordner für die Kopien auswählen" });
-      if (!dir || Array.isArray(dir)) return -1;
-      return invoke<number>("doc_export_all", { dir, items });
+      return (await invoke<number | null>("doc_export_all", { items })) ?? -1;
     },
-    async saveTextFile(fileName, contents) {
-      const e = ext(fileName);
-      const path = await dialog.save({ defaultPath: fileName, filters: [{ name: e.toUpperCase(), extensions: [e] }] });
-      if (!path) return false;
-      await invoke("write_text_file", { path, contents });
-      return true;
-    },
+    saveTextFile: (fileName, contents) => invoke("save_text_file", { fileName, contents }),
     onFileDrop(handler) {
-      void getCurrentWebview().onDragDropEvent((ev) => {
-        if (ev.payload.type === "drop") handler(ev.payload.paths);
-      });
+      void listen<number>("files-dropped", (ev) => handler(ev.payload));
     },
     async bringToFront() {
       const w = getCurrentWindow();
@@ -135,7 +137,7 @@ async function tauriBackend(): Promise<Backend> {
         pending = found;
         return found?.version ?? null;
       } catch (err) {
-        console.error("Update check failed:", err);
+        logError(`Update check failed: ${err}`);
         throw "update_check_failed";
       }
     },
@@ -154,7 +156,7 @@ async function tauriBackend(): Promise<Backend> {
           } else onProgress(100, "install");
         });
       } catch (err) {
-        console.error("Update failed:", err);
+        logError(`Update failed: ${err}`);
         throw "update_failed";
       }
       // On Windows the installer has already closed the app at this point.
@@ -162,10 +164,14 @@ async function tauriBackend(): Promise<Backend> {
         const { relaunch } = await import("@tauri-apps/plugin-process");
         await relaunch();
       } catch (err) {
-        console.error("Restart after update failed:", err);
+        logError(`Restart after update failed: ${err}`);
         throw "update_restart";
       }
     },
+    pickDataDir: () => invoke("data_dir_pick"),
+    applyDataDir: (mode) => invoke("data_dir_apply", { mode }),
+    resetDataDir: () => invoke("data_dir_reset"),
+    logError,
   };
 }
 
@@ -184,6 +190,9 @@ function browserBackend(): Backend {
   const need = () => {
     if (!unlocked) throw "locked";
   };
+  const desktopOnly = async (): Promise<never> => {
+    throw "io: Nur in der installierten App möglich";
+  };
   const makeCodes = (): Codes => {
     const c = { recovery: code(), emergency: code() };
     set("codes", JSON.stringify(c));
@@ -198,7 +207,14 @@ function browserBackend(): Backend {
   };
   return {
     kind: "browser",
-    status: async () => ({ initialized: get("pw") !== null, unlocked, dataDir: "Browser-Vorschau (nicht verschlüsselt)" }),
+    status: async () => ({
+      initialized: get("pw") !== null,
+      unlocked,
+      dataDir: "Browser-Vorschau (nicht verschlüsselt)",
+      dataDirFixed: true,
+      dataDirMissing: false,
+      logDir: "",
+    }),
     loadOpen: async () => get("open") ?? "",
     saveOpen: async (json) => set("open", json),
     async vaultCreate(password) {
@@ -256,7 +272,7 @@ function browserBackend(): Backend {
         input.click();
       });
     },
-    addDocPaths: async () => [],
+    addDroppedDocs: async () => [],
     async docRead(id) {
       need();
       const d = docs.get(id);
@@ -272,9 +288,7 @@ function browserBackend(): Backend {
       download(fileName, d as BlobPart);
       return true;
     },
-    async docExportAll() {
-      throw "io: Nur in der installierten App möglich";
-    },
+    docExportAll: desktopOnly,
     async saveTextFile(fileName, contents) {
       download(fileName, contents);
       return true;
@@ -289,6 +303,10 @@ function browserBackend(): Backend {
     async installUpdate() {
       throw "update_failed";
     },
+    pickDataDir: desktopOnly,
+    applyDataDir: desktopOnly,
+    async resetDataDir() {},
+    logError: (message) => console.error(message),
   };
 }
 

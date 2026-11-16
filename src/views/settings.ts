@@ -7,6 +7,7 @@ import { ALL_AREAS, AreaId, BDAY_CAT, CAT_COLORS, Scheme, TextSize, newId } from
 import { addSampleOpen, addSampleVault } from "../sample";
 import { AREAS, S, act, appName, applySettings, closeDialog, confirmDialog, errorText, esc, form, openDialog, pickTextFiles, render, saveOpen, saveVault, toast } from "../state";
 import { exportItems } from "./docs";
+import { vDataDirRow } from "./datadir";
 import { vProgramCard } from "./update";
 
 const SIZES: [TextSize, string][] = [["m", "Normal"], ["l", "Groß"], ["xl", "Sehr groß"]];
@@ -81,7 +82,7 @@ export function vSettings(): string {
     <p class="lead">Übernehmen Sie Daten aus anderen Programmen oder speichern Sie eine Kopie in einem gängigen Format.</p>
     <ul class="olist">${io("Termine", "Kalenderdatei (.ics), z. B. aus Outlook oder Google", "ics")}${io("Kontakte", "Visitenkarten (.vcf), z. B. vom Handy", "vcf")}${io("Notizen", "Textdateien (.txt, .md)", "notes")}${io("Passwörter", "Tabelle (.csv), z. B. aus Edge, Chrome oder Bitwarden", "csv")}
       <li class="orow"><span><b>Dokumente</b><br><span class="ev-m">Lesbare Kopien aller Dokumente in echten Ordnern</span></span><span class="hubsp"></span><button class="btn sec" data-act="export-all-docs">${ic("folder")}Alle exportieren</button></li></ul>
-    <p class="hint-line">${ic("folder")}Speicherort: ${esc(S.dataDir)}</p>
+    ${vDataDirRow()}
     <div class="btnrow"><button class="btn ghost" data-act="load-sample">Beispieldaten zum Ausprobieren laden</button></div>
   </section>
 

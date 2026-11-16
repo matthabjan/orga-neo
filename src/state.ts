@@ -4,13 +4,16 @@
 import type { Backend, Codes } from "./backend";
 import { AreaId, OpenData, VaultData, emptyOpen, startOfDay, ymd } from "./model";
 
-export type View = "setup" | "home" | "settings" | AreaId;
+export type View = "setup" | "missing" | "home" | "settings" | AreaId;
 
 export const S = {
   backend: null as unknown as Backend,
   dataDir: "",
   /** Version of the running program, read from the app at start. */
   appVersion: "",
+  /** The data folder is set by ORGA_NEO_DIR and cannot be changed in the settings. */
+  dataDirFixed: false,
+  logDir: "",
   data: emptyOpen() as OpenData,
   /** Passwords and document list; null while locked. */
   vault: null as VaultData | null,
@@ -108,6 +111,10 @@ export function errorText(err: unknown): string {
     too_large: "Das Dokument ist größer als 50 MB.",
     corrupt: "Die Datei ist beschädigt und kann nicht gelesen werden.",
     not_initialized: "Orga-Neo ist noch nicht eingerichtet.",
+    same_folder: "Das ist bereits der aktuelle Speicherort.",
+    inside_current: "Der neue Speicherort darf nicht im bisherigen Ordner liegen.",
+    target_has_data: "Im gewählten Ordner liegen bereits Orga-Neo-Daten.",
+    dir_fixed: "Der Speicherort ist beim Start von Orga-Neo fest eingestellt worden und kann hier nicht geändert werden.",
     update_check_failed: "Die Suche nach Updates hat nicht geklappt. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal.",
     update_restart: "Das Update ist installiert. Bitte schließen Sie das Programm und öffnen Sie es wieder.",
     update_failed: "Das Update konnte nicht installiert werden. Bitte prüfen Sie die Internetverbindung und versuchen Sie es später noch einmal. Ihre Daten sind unverändert.",

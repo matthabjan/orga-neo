@@ -29,6 +29,8 @@ use zeroize::Zeroizing;
 
 const DOC_MAGIC: &[u8; 5] = b"ONEO1";
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I, L, O, 0, 1
+/// Everything Orga-Neo keeps in its data folder.
+const DATA_ENTRIES: [&str; 4] = ["open.json", "vault.json", "docs", "backups"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -46,6 +48,12 @@ pub enum Error {
     InvalidId,
     #[error("corrupt")]
     Corrupt,
+    #[error("same_folder")]
+    SameFolder,
+    #[error("inside_current")]
+    InsideCurrent,
+    #[error("target_has_data")]
+    TargetHasData,
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -74,6 +82,10 @@ struct Slot {
     salt: String,
     nonce: String,
     ct: String,
+    /// Cost settings this slot was wrapped with. Missing in files written
+    /// before 0.2; those slots use the file-wide `VaultFile::kdf`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kdf: Option<Kdf>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -92,6 +104,7 @@ struct Slots {
 #[derive(Serialize, Deserialize, Clone)]
 struct VaultFile {
     version: u32,
+    /// Cost settings for slots that do not carry their own.
     kdf: Kdf,
     slots: Slots,
     data: Sealed,
@@ -134,6 +147,53 @@ impl Store {
 
     pub fn is_unlocked(&self) -> bool {
         self.key.is_some()
+    }
+
+    /// Whether `dir` already holds Orga-Neo data.
+    pub fn has_data(dir: &Path) -> bool {
+        dir.join("open.json").exists() || dir.join("vault.json").exists()
+    }
+
+    /// Refuse targets that are this folder or lie inside it.
+    pub fn check_new_dir(&self, target: &Path) -> Result<()> {
+        let (current, target) = (resolve(&self.dir), resolve(target));
+        if current == target {
+            return Err(Error::SameFolder);
+        }
+        if target.starts_with(&current) {
+            return Err(Error::InsideCurrent);
+        }
+        Ok(())
+    }
+
+    /// Move all data to `target`, which must not hold Orga-Neo data yet.
+    ///
+    /// Everything is copied and checked first. Then `commit` runs (the app
+    /// saves the new location there); only when it succeeds are the old files
+    /// deleted. On any failure the copies are removed and the old folder is
+    /// left exactly as it was. The vault stays unlocked if it was.
+    pub fn move_to(&mut self, target: &Path, commit: impl FnOnce() -> std::io::Result<()>) -> Result<()> {
+        self.check_new_dir(target)?;
+        if Store::has_data(target) {
+            return Err(Error::TargetHasData);
+        }
+        fs::create_dir_all(target)?;
+        let copied = DATA_ENTRIES
+            .iter()
+            .try_for_each(|name| copy_tree(&self.dir.join(name), &target.join(name)))
+            .and_then(|()| commit());
+        if let Err(err) = copied {
+            for name in DATA_ENTRIES {
+                let _ = remove_entry(&target.join(name));
+            }
+            return Err(err.into());
+        }
+        for name in DATA_ENTRIES {
+            let _ = remove_entry(&self.dir.join(name));
+        }
+        let _ = fs::remove_dir(&self.dir); // only if nothing else is left in it
+        self.dir = target.to_path_buf();
+        Ok(())
     }
 
     // ---------- open (unencrypted) data ----------
@@ -200,15 +260,18 @@ impl Store {
     }
 
     /// Set a new master password. The vault must be unlocked.
+    /// The old password stops working, also for the copies in backups/.
     pub fn change_password(&mut self, new_password: &str) -> Result<()> {
         check_password(new_password)?;
         let key = self.key.clone().ok_or(Error::Locked)?;
         let mut file = self.load_vault_file()?;
         file.slots.password = self.wrap(&key, new_password.as_bytes())?;
-        self.save_vault_file(&file)
+        self.save_vault_file(&file)?;
+        self.rewrap_backups(&key, &file.slots)
     }
 
-    /// Replace both printed codes. The old ones stop working.
+    /// Replace both printed codes. The old ones stop working, also for the
+    /// copies in backups/.
     pub fn new_codes(&mut self) -> Result<Codes> {
         let key = self.key.clone().ok_or(Error::Locked)?;
         let mut file = self.load_vault_file()?;
@@ -216,6 +279,7 @@ impl Store {
         file.slots.recovery = self.wrap(&key, normalize_code(&codes.recovery).as_bytes())?;
         file.slots.emergency = self.wrap(&key, normalize_code(&codes.emergency).as_bytes())?;
         self.save_vault_file(&file)?;
+        self.rewrap_backups(&key, &file.slots)?;
         Ok(codes)
     }
 
@@ -311,7 +375,41 @@ impl Store {
         OsRng.fill_bytes(&mut salt);
         let kek = derive(secret, &salt, self.kdf)?;
         let sealed = seal(&kek, &key[..], b"vault-key")?;
-        Ok(Slot { salt: B64.encode(salt), nonce: sealed.nonce, ct: sealed.ct })
+        Ok(Slot { salt: B64.encode(salt), nonce: sealed.nonce, ct: sealed.ct, kdf: Some(self.kdf) })
+    }
+
+    /// Put the current key slots into every backup of this vault, so a
+    /// replaced password or code cannot open an older copy either. The vault
+    /// key never changes, so the backed-up data stays readable. Backups of a
+    /// different vault (e.g. from before a reset) are left alone; unreadable
+    /// ones are removed, as they could still hold old slots.
+    fn rewrap_backups(&self, key: &Key, slots: &Slots) -> Result<()> {
+        let entries = match fs::read_dir(self.dir.join("backups")) {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        for entry in entries {
+            let path = entry?.path();
+            let is_vault = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("vault-") && n.ends_with(".json"));
+            if !is_vault {
+                continue;
+            }
+            let Ok(mut file) = serde_json::from_slice::<VaultFile>(&fs::read(&path)?) else {
+                fs::remove_file(&path)?;
+                continue;
+            };
+            if open(key, &file.data, b"vault-data").is_err() {
+                continue;
+            }
+            file.slots = slots.clone();
+            let json = serde_json::to_vec(&file).map_err(|_| Error::Corrupt)?;
+            atomic_write(&path, &json)?;
+        }
+        Ok(())
     }
 
     /// Write `name` atomically. Before the first change of each day, keep the
@@ -374,9 +472,10 @@ fn open(key: &Key, sealed: &Sealed, aad: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| Error::WrongSecret)
 }
 
-fn unwrap_slot(slot: &Slot, secret: &[u8], kdf: Kdf) -> Result<Key> {
+/// `file_kdf` is used for slots written before each slot stored its own settings.
+fn unwrap_slot(slot: &Slot, secret: &[u8], file_kdf: Kdf) -> Result<Key> {
     let salt = B64.decode(&slot.salt).map_err(|_| Error::Corrupt)?;
-    let kek = derive(secret, &salt, kdf)?;
+    let kek = derive(secret, &salt, slot.kdf.unwrap_or(file_kdf))?;
     let plain = Zeroizing::new(open(
         &kek,
         &Sealed { nonce: slot.nonce.clone(), ct: slot.ct.clone() },
@@ -425,6 +524,54 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     fs::rename(&tmp, path)?;
     Ok(())
+}
+
+/// Copy a file or folder tree, checking each file's size. A missing source is skipped.
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    let meta = match fs::metadata(from) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if meta.is_dir() {
+        fs::create_dir_all(to)?;
+        for entry in fs::read_dir(from)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+    if fs::copy(from, to)? != meta.len() || fs::metadata(to)?.len() != meta.len() {
+        return Err(std::io::Error::other("copy incomplete"));
+    }
+    Ok(())
+}
+
+fn remove_entry(path: &Path) -> std::io::Result<()> {
+    match fs::metadata(path) {
+        Ok(m) if m.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// An absolute, symlink-free form of `path`, also when its last parts do not exist yet.
+fn resolve(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut base = path.to_path_buf();
+    loop {
+        if let Ok(real) = base.canonicalize() {
+            return rest.iter().rev().fold(real, |p, part| p.join(part));
+        }
+        match (base.file_name().map(|n| n.to_owned()), base.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                base = parent.to_path_buf();
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
 }
 
 fn days_since_epoch() -> u64 {
@@ -605,6 +752,155 @@ mod tests {
         assert_eq!(s.read_open().unwrap(), r#"{"v":2}"#);
         let backups: Vec<_> = fs::read_dir(tmp.path().join("backups")).unwrap().collect();
         assert_eq!(backups.len(), 1, "one backup per file per day");
+    }
+
+    /// Open a copy of `backup` as if it were the live vault.
+    fn store_from_backup(backup: &Path) -> (tempfile::TempDir, Store) {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::copy(backup, tmp.path().join("vault.json")).unwrap();
+        let s = store(tmp.path());
+        (tmp, s)
+    }
+
+    fn vault_backup(dir: &Path) -> PathBuf {
+        fs::read_dir(dir.join("backups"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.file_name().unwrap().to_str().unwrap().starts_with("vault-"))
+            .expect("a vault backup")
+    }
+
+    #[test]
+    fn old_password_and_codes_do_not_open_backups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut s = store(tmp.path());
+        let old = s.create_vault(PW).unwrap();
+        // the first write of the day keeps a backup (with the old slots)
+        s.write_vault(r#"{"v":1}"#).unwrap();
+        s.change_password("Neues-Passwort-2026").unwrap();
+        let new = s.new_codes().unwrap();
+
+        let (_t, mut b) = store_from_backup(&vault_backup(tmp.path()));
+        assert!(matches!(b.unlock(PW), Err(Error::WrongSecret)));
+        assert!(matches!(b.unlock_with_code(&old.recovery), Err(Error::WrongSecret)));
+        assert!(matches!(b.unlock_with_code(&old.emergency), Err(Error::WrongSecret)));
+        b.unlock("Neues-Passwort-2026").unwrap();
+        assert_eq!(b.read_vault().unwrap(), r#"{"passwords":[],"docs":[]}"#, "backed-up data stays readable");
+        b.lock();
+        b.unlock_with_code(&new.emergency).unwrap();
+    }
+
+    #[test]
+    fn backups_of_an_earlier_vault_are_left_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut s = store(tmp.path());
+        s.create_vault(PW).unwrap();
+        s.write_vault(r#"{"alt":true}"#).unwrap();
+        // start over with a new vault, as after a reset
+        fs::remove_file(tmp.path().join("vault.json")).unwrap();
+        let mut s = store(tmp.path());
+        s.create_vault("Ganz-anderes-Passwort").unwrap();
+        s.change_password("Noch-ein-Passwort-1").unwrap();
+
+        let (_t, mut b) = store_from_backup(&vault_backup(tmp.path()));
+        b.unlock(PW).unwrap();
+        assert_eq!(b.read_vault().unwrap(), r#"{"passwords":[],"docs":[]}"#);
+    }
+
+    #[test]
+    fn raised_kdf_settings_do_not_lock_anyone_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codes = store(tmp.path()).create_vault(PW).unwrap();
+        // a later version with stronger defaults changes the password
+        let stronger = Kdf { m: 128, t: 2, p: 1 };
+        let mut s = Store::with_kdf(tmp.path(), stronger);
+        s.unlock(PW).unwrap();
+        s.change_password("Neues-Passwort-2026").unwrap();
+
+        let mut again = Store::with_kdf(tmp.path(), stronger);
+        again.unlock("Neues-Passwort-2026").unwrap();
+        again.lock();
+        again.unlock_with_code(&codes.recovery).unwrap();
+    }
+
+    #[test]
+    fn vault_files_without_slot_settings_still_open() {
+        let tmp = tempfile::tempdir().unwrap();
+        let codes = store(tmp.path()).create_vault(PW).unwrap();
+        // strip the per-slot settings, as in files written before 0.2
+        let path = tmp.path().join("vault.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        for slot in ["password", "recovery", "emergency"] {
+            v["slots"][slot].as_object_mut().unwrap().remove("kdf");
+        }
+        fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
+
+        let mut s = store(tmp.path());
+        s.unlock(PW).unwrap();
+        s.lock();
+        s.unlock_with_code(&codes.emergency).unwrap();
+    }
+
+    fn filled_store(dir: &Path) -> (Store, Codes) {
+        let mut s = store(dir);
+        let codes = s.create_vault(PW).unwrap();
+        s.write_open(r#"{"v":1}"#).unwrap();
+        s.write_vault(r#"{"passwords":[{"pw":"x"}]}"#).unwrap();
+        s.add_doc("abc", b"Dokument").unwrap();
+        (s, codes)
+    }
+
+    #[test]
+    fn moving_takes_everything_and_clears_the_old_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("alt");
+        let new = tmp.path().join("usb").join("Orga-Neo");
+        let (mut s, codes) = filled_store(&old);
+        let mut committed = false;
+        s.move_to(&new, || {
+            committed = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(committed);
+        assert_eq!(s.dir(), new);
+        assert!(!old.exists(), "old folder removed");
+        assert_eq!(s.read_doc("abc").unwrap(), b"Dokument", "still unlocked");
+
+        let mut again = store(&new);
+        assert_eq!(again.read_open().unwrap(), r#"{"v":1}"#);
+        again.unlock_with_code(&codes.recovery).unwrap();
+        assert!(again.read_vault().unwrap().contains("pw"));
+        assert!(new.join("backups").read_dir().unwrap().count() > 0);
+    }
+
+    #[test]
+    fn a_failed_commit_leaves_the_old_folder_untouched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("alt");
+        let new = tmp.path().join("neu");
+        let (mut s, _) = filled_store(&old);
+        let err = s.move_to(&new, || Err(std::io::Error::other("no config")));
+        assert!(matches!(err, Err(Error::Io(_))));
+        assert_eq!(s.dir(), old);
+        assert!(Store::has_data(&old) && old.join("docs/abc.enc").exists());
+        assert!(!Store::has_data(&new), "partial copies removed");
+        s.unlock(PW).unwrap();
+        assert!(s.read_vault().unwrap().contains("pw"));
+    }
+
+    #[test]
+    fn moving_refuses_unsafe_targets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("alt");
+        let (mut s, _) = filled_store(&old);
+        let other = tmp.path().join("andere");
+        store(&other).write_open("{}").unwrap();
+        let ok = || Ok(());
+        assert!(matches!(s.move_to(&old, ok), Err(Error::SameFolder)));
+        assert!(matches!(s.move_to(&old.join("docs/x"), ok), Err(Error::InsideCurrent)));
+        assert!(matches!(s.move_to(&other, ok), Err(Error::TargetHasData)));
+        assert!(Store::has_data(&old));
     }
 
     #[test]
