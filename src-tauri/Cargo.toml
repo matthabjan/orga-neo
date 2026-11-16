@@ -1,0 +1,33 @@
+[package]
+name = "orga-neo"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Personal organizer for seniors"
+
+[workspace]
+members = ["core"]
+
+[lib]
+name = "orga_neo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+orga-core = { path = "core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+
+# Optimise dependencies in development too: unoptimised Argon2 takes many seconds.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
