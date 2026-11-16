@@ -17,10 +17,10 @@
   --danger:#A3262A;
   --accent:var(--slate); --accent-t:var(--slate-t);
   --hfont:"Atkinson","Segoe UI",system-ui,sans-serif;
-  font-size:17px;
+  font-size:15px;
 }
-:root[data-size="l"]{font-size:19px}
-:root[data-size="xl"]{font-size:22px}
+:root[data-size="l"]{font-size:17px}
+:root[data-size="xl"]{font-size:19px}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{font-family:"Atkinson","Segoe UI",system-ui,sans-serif;background:var(--page);color:var(--ink);line-height:1.45;-webkit-font-smoothing:antialiased}
