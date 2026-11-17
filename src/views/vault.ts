@@ -3,6 +3,7 @@
 import { ic } from "../icons";
 import { AreaId, normalizeVault } from "../model";
 import { AREAS, S, act, closeDialog, errorText, form, render, toast } from "../state";
+import { purgeExpired } from "./docs";
 
 let useCode = false;
 
@@ -24,6 +25,7 @@ export function vGate(area: AreaId): string {
 
 export async function loadVault() {
   S.vault = normalizeVault(JSON.parse((await S.backend.vaultLoad()) || "{}"));
+  await purgeExpired();
 }
 
 export async function lockVault() {

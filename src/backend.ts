@@ -56,6 +56,12 @@ export interface Backend {
   docDelete(id: string): Promise<void>;
   /** Save a decrypted copy. Resolves false when the user cancels. */
   docExport(id: string, fileName: string): Promise<boolean>;
+  /** Move the original files of just-added documents to the recycle bin, each only if its encrypted copy matches. Resolves how many were moved. */
+  docTrashOriginals(ids: string[]): Promise<number>;
+  /** Open a read-only, decrypted copy in the program the system uses for this file type. Throws "open_failed". */
+  docOpen(id: string, fileName: string): Promise<void>;
+  /** Copy all data, still encrypted, into a new folder `name` in a folder the user picks. Resolves that folder for display, or null on cancel. */
+  backupCreate(name: string): Promise<string | null>;
   /** Write readable copies of all given documents into a folder the user picks. Resolves the number written, or -1 on cancel. */
   docExportAll(items: { id: string; folders: string[]; file: string }[]): Promise<number>;
   saveTextFile(fileName: string, contents: string): Promise<boolean>;
@@ -113,6 +119,9 @@ async function tauriBackend(): Promise<Backend> {
     async docExportAll(items) {
       return (await invoke<number | null>("doc_export_all", { items })) ?? -1;
     },
+    docTrashOriginals: (ids) => invoke("doc_trash_originals", { ids }),
+    docOpen: (id, fileName) => invoke("doc_open", { id, fileName }),
+    backupCreate: (name) => invoke("backup_create", { name }),
     saveTextFile: (fileName, contents) => invoke("save_text_file", { fileName, contents }),
     onFileDrop(handler) {
       void listen<number>("files-dropped", (ev) => handler(ev.payload));
@@ -273,6 +282,14 @@ function browserBackend(): Backend {
       return true;
     },
     docExportAll: desktopOnly,
+    // The browser never sees where a file came from.
+    docTrashOriginals: async () => 0,
+    async docOpen(id, fileName) {
+      const d = docs.get(id);
+      if (!d) throw "io: Dokument nur in dieser Browser-Sitzung verfügbar";
+      download(fileName, d as BlobPart);
+    },
+    backupCreate: desktopOnly,
     async saveTextFile(fileName, contents) {
       download(fileName, contents);
       return true;

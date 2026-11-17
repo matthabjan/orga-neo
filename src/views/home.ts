@@ -4,6 +4,7 @@ import { ic } from "../icons";
 import { AreaId, addDays, ageOn, fmt, initials, occurrences, relDay, relLower, startOfDay } from "../model";
 import { AREAS, S, act, appName, esc, go, render } from "../state";
 import { catStyle } from "./cal";
+import { liveDocs } from "./docs";
 import { vUpdateBanner } from "./update";
 import { lockVault } from "./vault";
 
@@ -34,7 +35,7 @@ function tileInfo(id: AreaId, now: Date): string {
     return pins ? `${d.notes.length} Notizen, ${pins} angeheftet` : `${d.notes.length} Notizen`;
   }
   if (!S.vault) return `${ic("lock")}Verschlossen`;
-  return id === "docs" ? `${S.vault.docs.length} Unterlagen` : `${S.vault.passwords.length} gespeichert`;
+  return id === "docs" ? `${liveDocs().length} Unterlagen` : `${S.vault.passwords.length} gespeichert`;
 }
 
 function searchResults(q: string): string {
@@ -50,7 +51,7 @@ function searchResults(q: string): string {
   group("Kontakte", d.contacts.filter((c) => has(c.name, c.rel, c.street, c.city, c.mobile, c.phone, c.note)).map((c) => row(`data-act="open-contact" data-id="${c.id}"`, "petrol", esc(initials(c.name)), c.name, c.mobile || c.phone || c.rel)));
   group("Notizen", d.notes.filter((n) => has(n.title, n.text)).map((n) => row(`data-act="open-note" data-id="${n.id}"`, "mustard", ic("note"), n.title || "Ohne Titel", n.text.split("\n")[0])));
   if (S.vault) {
-    group("Dokumente", S.vault.docs.filter((x) => has(x.title, x.file)).map((x) => row(`data-act="open-doc" data-id="${x.id}"`, "blue", ic("doc"), x.title, x.file)));
+    group("Dokumente", liveDocs().filter((x) => has(x.title, x.file)).map((x) => row(`data-act="open-doc" data-id="${x.id}"`, "blue", ic("doc"), x.title, x.file)));
     group("Passwörter", S.vault.passwords.filter((p) => has(p.name, p.site, p.user)).map((p) => row(`data-act="open-pw" data-id="${p.id}"`, "green", esc(p.name[0] ?? "?"), p.name, p.user)));
   }
   const hint = S.vault ? "" : `<p class="hint-line">${ic("lock")}Passwörter und Dokumente werden erst durchsucht, wenn der Tresor geöffnet ist.</p>`;

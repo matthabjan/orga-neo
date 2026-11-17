@@ -3,12 +3,40 @@
 import type { Codes } from "../backend";
 import { ic } from "../icons";
 import { parseIcs, parsePasswordCsv, parseVcf, noteFromFile, notesToMarkdown, toIcs, toPasswordCsv, toVcf } from "../io";
-import { ALL_AREAS, AreaId, BDAY_CAT, CAT_COLORS, Scheme, TextSize, newId } from "../model";
+import { ALL_AREAS, AreaId, BDAY_CAT, CAT_COLORS, Scheme, Settings, TextSize, daysSinceBackup, fmt, newId, parseYmd, ymd } from "../model";
 import { addSampleOpen, addSampleVault } from "../sample";
-import { AREAS, S, act, appName, applySettings, closeDialog, confirmDialog, errorText, esc, form, openDialog, pickTextFiles, render, saveOpen, saveVault, toast } from "../state";
+import { AREAS, S, act, appName, applySettings, closeDialog, confirmDialog, errorText, esc, flushOpen, form, openDialog, pickTextFiles, render, saveOpen, saveVault, toast } from "../state";
 import { exportItems } from "./docs";
 import { vDataDirRow } from "./datadir";
 import { vProgramCard } from "./update";
+
+const ORIGINALS: [Settings["originals"], string][] = [
+  ["ask", "Jedes Mal fragen, ob das Original in den Windows-Papierkorb soll"],
+  ["keep", "Original immer behalten"],
+  ["trash", "Original immer in den Windows-Papierkorb verschieben"],
+];
+
+/** The Datensicherung card: an encrypted copy of the whole data folder. */
+function vBackupCard(): string {
+  const s = S.data.settings;
+  const days = daysSinceBackup(s, new Date());
+  const status =
+    days === null
+      ? `${ic("bell")}Es wurde noch keine Sicherung angelegt.`
+      : `${ic(days > 30 ? "bell" : "check")}Letzte Sicherung: ${fmt(parseYmd(s.lastBackup), { day: "numeric", month: "long", year: "numeric" })}${days > 30 ? ". Das ist über einen Monat her." : ""}`;
+  const oneDrive = /onedrive/i.test(S.dataDir)
+    ? `<li>Ihr Speicherort liegt in OneDrive. Dort gibt es zusätzlich eine verschlüsselte Kopie in der Cloud. Eine Sicherung auf einem USB-Stick ergänzt sie.</li>`
+    : "";
+  return `<section class="card"><h2>Datensicherung</h2>
+    <p class="lead">Eine Sicherung ist eine vollständige Kopie aller Daten, zum Beispiel auf einem USB-Stick. Passwörter und Dokumente bleiben darin verschlüsselt. Geht der Computer kaputt oder verloren, holen Sie damit alles zurück.</p>
+    <p class="hint-line">${status}</p>
+    <div class="btnrow"><button class="btn sec" data-act="backup-create">${ic("download")}Sicherung anlegen</button></div>
+    <ul class="notes-list">
+      <li>Eine Sicherung öffnet sich mit dem Master-Passwort und dem Notfallblatt, die beim Sichern gültig waren.</li>
+      <li>Zum Zurückholen wählen Sie unter „Speicherort ändern“ den Sicherungsordner.</li>${oneDrive}
+    </ul>
+  </section>`;
+}
 
 const SIZES: [TextSize, string][] = [["m", "Normal"], ["l", "Groß"], ["xl", "Sehr groß"]];
 const SCHEMES: [Scheme, string, string][] = [
@@ -74,14 +102,18 @@ export function vSettings(): string {
   <section class="card"><h2>Sicherheit</h2>
     <p class="lead">Passwörter und Dokumente sind mit Ihrem Master-Passwort verschlüsselt. Termine, Kontakte und Notizen sind es nicht, damit Erinnerungen ohne Passwort erscheinen.</p>
     <div class="field"><label for="s-lock">Tresor automatisch schließen</label><select class="inp" id="s-lock" data-setting="autoLock" style="max-width:22rem">${[5, 10, 30, 60].map((m) => `<option value="${m}" ${s.autoLock === m ? "selected" : ""}>nach ${m} Minuten ohne Eingabe</option>`).join("")}</select></div>
+    <div class="field"><label for="s-orig">Nach dem Ablegen eines Dokuments</label><select class="inp" id="s-orig" data-setting="originals" style="max-width:40rem">${ORIGINALS.map(([k, l]) => `<option value="${k}" ${s.originals === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <div class="hint">Das Original ist die Datei, aus der das Dokument abgelegt wurde. Sie bleibt sonst unverschlüsselt auf dem Computer.</div></div>
     <div class="btnrow"><button class="btn sec" data-act="change-master">${ic("key")}Master-Passwort ändern</button><button class="btn sec" data-act="new-codes">${ic("print")}Neues Notfallblatt erstellen</button></div>
     ${S.vault ? "" : `<p class="hint-line">${ic("lock")}Dafür muss der Tresor geöffnet sein: Öffnen Sie zuerst Passwörter oder Dokumente.</p>`}
   </section>
 
+  ${vBackupCard()}
+
   <section class="card"><h2>Daten</h2>
     <p class="lead">Übernehmen Sie Daten aus anderen Programmen oder speichern Sie eine Kopie in einem gängigen Format.</p>
     <ul class="olist">${io("Termine", "Kalenderdatei (.ics), z. B. aus Outlook oder Google", "ics")}${io("Kontakte", "Visitenkarten (.vcf), z. B. vom Handy", "vcf")}${io("Notizen", "Textdateien (.txt, .md)", "notes")}${io("Passwörter", "Tabelle (.csv), z. B. aus Edge, Chrome oder Bitwarden", "csv")}
-      <li class="orow"><span><b>Dokumente</b><br><span class="ev-m">Lesbare Kopien aller Dokumente in echten Ordnern</span></span><span class="hubsp"></span><button class="btn sec" data-act="export-all-docs">${ic("folder")}Alle exportieren</button></li></ul>
+      <li class="orow"><span><b>Dokumente</b><br><span class="ev-m">Unverschlüsselte Kopien aller Dokumente in normalen Ordnern, z. B. zum Weitergeben. Das ist keine Datensicherung: Jeder kann sie lesen.</span></span><span class="hubsp"></span><button class="btn sec" data-act="export-all-docs">${ic("folder")}Unverschlüsselt exportieren</button></li></ul>
     ${vDataDirRow()}
     <div class="btnrow"><button class="btn ghost" data-act="load-sample">Beispieldaten zum Ausprobieren laden</button></div>
   </section>
@@ -98,6 +130,7 @@ export function settingInput(el: HTMLInputElement | HTMLSelectElement) {
   else if (key === "firstName") s.firstName = el.value.trim().slice(0, 40);
   else if (key === "tagline") s.tagline = el.value.slice(0, 80);
   else if (key === "autoLock") s.autoLock = Number(el.value);
+  else if (key === "originals") s.originals = el.value as Settings["originals"];
   else if (el.dataset.catName) {
     const c = s.categories.find((x) => x.id === el.dataset.catName);
     if (c) c.name = el.value.slice(0, 40);
@@ -208,14 +241,14 @@ form("master", async (v) => {
   try {
     await S.backend.vaultChangePassword(v.a);
     closeDialog();
-    toast("Master-Passwort geändert. Ihr Notfallblatt gilt weiter.");
+    toast("Master-Passwort geändert. Ihr Notfallblatt gilt weiter. Ältere Sicherungen öffnen sich mit dem alten Passwort.");
   } catch (e) {
     err.textContent = errorText(e);
   }
 });
 act("new-codes", async () => {
   if (!needVault()) return;
-  if (!(await confirmDialog("Neues Notfallblatt erstellen?", "Die Codes auf den alten Blättern funktionieren danach nicht mehr.", "Neu erstellen"))) return;
+  if (!(await confirmDialog("Neues Notfallblatt erstellen?", "Die Codes auf den alten Blättern funktionieren danach nicht mehr. Nur ältere Sicherungen öffnen sich weiterhin mit den alten Codes.", "Neu erstellen"))) return;
   try {
     const codes = await S.backend.vaultNewCodes();
     openDialog(`<div class="dh"><h2 id="dlg-title">Neue Notfall-Codes</h2></div>
@@ -290,12 +323,35 @@ act("export", async (el) => {
 });
 act("export-all-docs", async () => {
   if (!needVault()) return;
-  if (!S.vault!.docs.length) return toast("Es sind noch keine Dokumente abgelegt.");
+  const items = exportItems();
+  if (!items.length) return toast("Es sind noch keine Dokumente abgelegt.");
+  if (!(await confirmDialog("Dokumente unverschlüsselt speichern?", "Die Kopien sind nicht geschützt: Jeder, der an den Ordner kommt, kann sie lesen. Für eine geschützte Kopie verwenden Sie „Sicherung anlegen“.", "Trotzdem speichern"))) return;
   try {
-    const n = await S.backend.docExportAll(exportItems());
+    const n = await S.backend.docExportAll(items);
     if (n >= 0) toast(plural(n, "Dokument", "Dokumente") + " als lesbare Kopie gespeichert. Diese Kopien sind nicht verschlüsselt.");
   } catch (e) {
     toast(errorText(e));
+  }
+});
+act("backup-create", async (el) => {
+  const btn = el as HTMLButtonElement;
+  const label = btn.innerHTML;
+  try {
+    // Nothing typed may be missing from the copy.
+    await flushOpen();
+    btn.disabled = true;
+    btn.textContent = "Wird gesichert …";
+    const where = await S.backend.backupCreate(`Orga-Neo-Sicherung ${ymd(new Date())}`);
+    if (!where) return;
+    S.data.settings.lastBackup = ymd(new Date());
+    saveOpen();
+    render();
+    toast(`Sicherung angelegt: ${where}`);
+  } catch (e) {
+    toast(errorText(e));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = label;
   }
 });
 act("load-sample", async () => {

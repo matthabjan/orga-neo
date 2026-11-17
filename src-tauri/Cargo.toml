@@ -24,6 +24,10 @@ serde_json = "1"
 rand = "0.8"
 log = "0.4"
 tauri-plugin-log = "2.10.2"
+# Moves an original file to the recycle bin after it was stored encrypted.
+trash = "5.3"
+# Opens a decrypted copy in the program the system uses for that file type.
+open = "5.3"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2.14.1"
