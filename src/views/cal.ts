@@ -47,10 +47,10 @@ export function vCal(): string {
     .map((o) => {
       const cat = category(o.ev.cat);
       if (o.contact)
-        return `<li><button class="dl-b" data-act="open-contact" data-id="${o.contact.id}"><span class="cattag" style="${catStyle(o.ev.cat, "pill")}">${esc(cat?.name ?? "")}</span>
+        return `<li><button class="dl-b" data-act="open-contact" data-id="${esc(o.contact.id)}"><span class="cattag" style="${catStyle(o.ev.cat, "pill")}">${esc(cat?.name ?? "")}</span>
           <span class="ev-t">${esc(o.contact.name)}</span><span class="ev-m">wird ${ageOn(o.contact, o.date)} Jahre alt</span></button></li>`;
       const e = o.ev;
-      return `<li><button class="dl-b" data-act="edit-event" data-id="${e.id}"><span class="cattag" style="${catStyle(e.cat, "pill")}">${esc(cat?.name ?? "")}</span>
+      return `<li><button class="dl-b" data-act="edit-event" data-id="${esc(e.id)}"><span class="cattag" style="${catStyle(e.cat, "pill")}">${esc(cat?.name ?? "")}</span>
         <span class="tm">${e.time ? e.time + " Uhr" : "Ganztägig"}</span><span class="ev-t">${esc(e.title)}</span>
         ${e.place ? `<span class="ev-m">${esc(e.place)}</span>` : ""}${e.note ? `<span class="ev-m">${esc(e.note)}</span>` : ""}
         ${e.rep ? `<span class="rep">${ic("repeat")}Wiederholt sich ${REP_TEXT[e.rep]}</span>` : ""}${e.rem >= 0 ? `<span class="rep">${ic("bell")}Erinnerung: ${REMINDERS.find((r) => r[0] === e.rem)?.[1].toLowerCase() ?? e.rem + " Minuten vorher"}</span>` : ""}</button></li>`;
@@ -58,7 +58,7 @@ export function vCal(): string {
     .join("");
 
   const filter = S.data.settings.categories
-    .map((c) => `<button class="chip cat" data-act="cal-filter" data-id="${c.id}" aria-pressed="${!S.calHidden.has(c.id)}"><span class="dot" style="${catStyle(c.id, "dot")}"></span>${esc(c.name)}</button>`)
+    .map((c) => `<button class="chip cat" data-act="cal-filter" data-id="${esc(c.id)}" aria-pressed="${!S.calHidden.has(c.id)}"><span class="dot" style="${catStyle(c.id, "dot")}"></span>${esc(c.name)}</button>`)
     .join("");
 
   return `<header class="ph"><div><h1>Termine</h1><p>Wählen Sie einen Tag, um seine Termine zu sehen. Zum Ändern klicken Sie auf den Termin.</p></div>
@@ -87,11 +87,11 @@ function eventDialog(e: Ev, isNew: boolean) {
   openDialog(`<form data-form="event" novalidate>
   <div class="dh"><h2 id="dlg-title">${isNew ? "Termin eintragen" : "Termin ändern"}</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
   <div class="db">
-    <input type="hidden" name="id" value="${isNew ? "" : e.id}">
+    <input type="hidden" name="id" value="${isNew ? "" : esc(e.id)}">
     <div class="field"><label for="f-t">Was?</label><input class="inp" id="f-t" name="title" placeholder="z. B. Zahnarzt" value="${esc(e.title)}" required autofocus></div>
-    <div class="two"><div class="field"><label for="f-d">Datum</label><input class="inp" id="f-d" name="date" type="date" value="${e.date}" required></div>
-    <div class="field"><label for="f-z">Uhrzeit</label><input class="inp" id="f-z" name="time" type="time" value="${e.time}"><div class="hint">Leer lassen für ganztägig</div></div></div>
-    <div class="two"><div class="field"><label for="f-c">Kategorie</label><select class="inp" id="f-c" name="cat">${cats.map((c) => `<option value="${c.id}" ${c.id === e.cat ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+    <div class="two"><div class="field"><label for="f-d">Datum</label><input class="inp" id="f-d" name="date" type="date" value="${esc(e.date)}" required></div>
+    <div class="field"><label for="f-z">Uhrzeit</label><input class="inp" id="f-z" name="time" type="time" value="${esc(e.time)}"><div class="hint">Leer lassen für ganztägig</div></div></div>
+    <div class="two"><div class="field"><label for="f-c">Kategorie</label><select class="inp" id="f-c" name="cat">${cats.map((c) => `<option value="${esc(c.id)}" ${c.id === e.cat ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
     <div class="field"><label for="f-o">Wo? <span class="opt">(freiwillig)</span></label><input class="inp" id="f-o" name="place" placeholder="Adresse oder Ort" value="${esc(e.place)}"></div></div>
     <div class="two"><div class="field"><label for="f-r">Wiederholen</label><select class="inp" id="f-r" name="rep">${opt(REPEATS, e.rep)}</select></div>
     <div class="field"><label for="f-e">Erinnern</label><select class="inp" id="f-e" name="rem">${opt(REMINDERS, e.rem)}</select></div></div>
@@ -99,7 +99,7 @@ function eventDialog(e: Ev, isNew: boolean) {
     ${isNew ? `<p class="hint-line">${ic("cake")}Einen Geburtstag? <button type="button" class="linkbtn" data-act="new-birthday">Geburtstag eintragen</button></p>` : ""}
     <p class="err" id="form-err" role="alert"></p>
   </div>
-  <div class="df">${isNew ? "" : `<button type="button" class="btn danger left" data-act="delete-event" data-id="${e.id}">Löschen</button>`}<button type="button" class="btn ghost" data-act="close">Abbrechen</button><button class="btn pri" style="--accent:var(--plum)">Termin speichern</button></div></form>`);
+  <div class="df">${isNew ? "" : `<button type="button" class="btn danger left" data-act="delete-event" data-id="${esc(e.id)}">Löschen</button>`}<button type="button" class="btn ghost" data-act="close">Abbrechen</button><button class="btn pri" style="--accent:var(--plum)">Termin speichern</button></div></form>`);
 }
 
 act("cal-day", (el) => {

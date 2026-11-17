@@ -156,9 +156,16 @@ fn vault_change_password(state: State<AppState>, password: String) -> CmdResult<
     state.0.lock().unwrap().change_password(&password).map_err(e)
 }
 
+/// New codes and a new vault key; `password` is the current master password.
 #[tauri::command(async)]
-fn vault_new_codes(state: State<AppState>) -> CmdResult<Codes> {
-    state.0.lock().unwrap().new_codes().map_err(e)
+fn vault_new_codes(state: State<AppState>, password: String) -> CmdResult<Codes> {
+    state.0.lock().unwrap().new_codes(&password).map_err(e)
+}
+
+/// New master password, new codes and a new vault key at once.
+#[tauri::command(async)]
+fn vault_change_password_and_codes(state: State<AppState>, password: String) -> CmdResult<Codes> {
+    state.0.lock().unwrap().change_password_and_codes(&password).map_err(e)
 }
 
 /// Encrypt the files at `paths` into the vault. Returns one entry per stored file.
@@ -516,6 +523,7 @@ pub fn run() {
             vault_save,
             vault_change_password,
             vault_new_codes,
+            vault_change_password_and_codes,
             doc_pick_and_add,
             doc_add_dropped,
             doc_read,
