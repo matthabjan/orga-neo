@@ -165,7 +165,7 @@ export function toVcf(contacts: Contact[]): string {
 // ---------- passwords: CSV ----------
 
 /** RFC 4180 parser: quoted fields, doubled quotes, line breaks inside quotes. */
-export function parseCsv(text: string): string[][] {
+export function parseCsv(text: string, sep = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -180,7 +180,7 @@ export function parseCsv(text: string): string[][] {
       } else if (ch === '"') quoted = false;
       else field += ch;
     } else if (ch === '"') quoted = true;
-    else if (ch === ",") {
+    else if (ch === sep) {
       row.push(field);
       field = "";
     } else if (ch === "\n" || ch === "\r") {

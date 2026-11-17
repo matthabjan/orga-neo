@@ -6,7 +6,8 @@
 //! dialogs opened here in Rust, or from files the user dropped onto the window,
 //! so a script in the webview cannot read or write arbitrary files.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use orga_core::{Codes, Store};
@@ -27,6 +28,11 @@ struct AppState(Mutex<Store>);
 
 /// Files dropped onto the window, waiting for the UI to ask for them.
 struct Dropped(Mutex<Vec<PathBuf>>);
+
+/// Where the files of the last `add_docs` came from, by document id, so the
+/// UI can offer to move the originals to the recycle bin without ever
+/// handling a path.
+struct Originals(Mutex<HashMap<String, PathBuf>>);
 
 /// Where the data folder came from.
 #[derive(Clone, Copy, PartialEq)]
@@ -137,8 +143,10 @@ fn vault_unlock_code(state: State<AppState>, code: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-fn vault_lock(state: State<AppState>) {
+fn vault_lock(app: AppHandle, state: State<AppState>, originals: State<Originals>) {
     state.0.lock().unwrap().lock();
+    originals.0.lock().unwrap().clear();
+    remove_opened(&app);
 }
 
 #[tauri::command]
@@ -169,8 +177,10 @@ fn vault_change_password_and_codes(state: State<AppState>, password: String) -> 
 }
 
 /// Encrypt the files at `paths` into the vault. Returns one entry per stored file.
-fn add_docs(state: &State<AppState>, paths: Vec<PathBuf>) -> CmdResult<Vec<AddedDoc>> {
+fn add_docs(state: &State<AppState>, originals: &State<Originals>, paths: Vec<PathBuf>) -> CmdResult<Vec<AddedDoc>> {
     let store = state.0.lock().unwrap();
+    let mut origin = originals.0.lock().unwrap();
+    origin.clear();
     let mut added = Vec::new();
     for path in paths {
         let meta = std::fs::metadata(&path).map_err(io)?;
@@ -183,6 +193,7 @@ fn add_docs(state: &State<AppState>, paths: Vec<PathBuf>) -> CmdResult<Vec<Added
         let bytes = std::fs::read(&path).map_err(io)?;
         let id = new_id();
         store.add_doc(&id, &bytes).map_err(e)?;
+        origin.insert(id.clone(), path.clone());
         added.push(AddedDoc {
             id,
             name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
@@ -194,20 +205,100 @@ fn add_docs(state: &State<AppState>, paths: Vec<PathBuf>) -> CmdResult<Vec<Added
 
 /// Let the user pick files and store them encrypted. Cancelling adds nothing.
 #[tauri::command(async)]
-fn doc_pick_and_add(window: Window, state: State<AppState>) -> CmdResult<Vec<AddedDoc>> {
+fn doc_pick_and_add(window: Window, state: State<AppState>, originals: State<Originals>) -> CmdResult<Vec<AddedDoc>> {
     need_unlocked(&state)?;
     let Some(picked) = dialog(&window, "Dokumente auswählen").blocking_pick_files() else {
         return Ok(Vec::new());
     };
     let paths = picked.into_iter().filter_map(|p| p.into_path().ok()).collect();
-    add_docs(&state, paths)
+    add_docs(&state, &originals, paths)
 }
 
 /// Store the files most recently dropped onto the window.
 #[tauri::command(async)]
-fn doc_add_dropped(state: State<AppState>, dropped: State<Dropped>) -> CmdResult<Vec<AddedDoc>> {
+fn doc_add_dropped(state: State<AppState>, originals: State<Originals>, dropped: State<Dropped>) -> CmdResult<Vec<AddedDoc>> {
     let paths = std::mem::take(&mut *dropped.0.lock().unwrap());
-    add_docs(&state, paths)
+    add_docs(&state, &originals, paths)
+}
+
+/// Move the original files of the given (just added) documents to the
+/// recycle bin. Each one only if its encrypted copy reads back identical.
+/// Returns how many were moved.
+#[tauri::command(async)]
+fn doc_trash_originals(state: State<AppState>, originals: State<Originals>, ids: Vec<String>) -> CmdResult<u32> {
+    let store = state.0.lock().unwrap();
+    let mut origin = originals.0.lock().unwrap();
+    let mut moved = 0;
+    for id in ids {
+        let Some(path) = origin.remove(&id) else { continue };
+        let same = match (store.read_doc(&id), std::fs::read(&path)) {
+            (Ok(stored), Ok(original)) => stored == original,
+            _ => false,
+        };
+        if !same {
+            log::warn!("original not moved to the recycle bin: encrypted copy differs or is unreadable");
+            continue;
+        }
+        match trash::delete(&path) {
+            Ok(()) => moved += 1,
+            // The error text can contain the path, which may hold a name.
+            Err(_) => log::warn!("original could not be moved to the recycle bin"),
+        }
+    }
+    Ok(moved)
+}
+
+/// Folder for decrypted copies opened in another program. It is outside the
+/// data folder (which OneDrive may sync) and emptied on lock, start and exit.
+fn opened_dir(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_local_data_dir().ok().map(|d| d.join("Geoeffnet"))
+}
+
+/// Delete the opened copies. Files another program still holds open stay
+/// until the next try.
+fn remove_opened(app: &AppHandle) {
+    let Some(dir) = opened_dir(app) else { return };
+    if !dir.exists() {
+        return;
+    }
+    make_writable(&dir);
+    if std::fs::remove_dir_all(&dir).is_err() {
+        log::info!("some opened copies are still in use and stay until later");
+    }
+}
+
+/// Clear the read-only flag below `path`, which would otherwise stop deleting on Windows.
+fn make_writable(path: &Path) {
+    let Ok(entries) = std::fs::read_dir(path) else { return };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            make_writable(&p);
+        } else if let Ok(meta) = std::fs::metadata(&p) {
+            let mut perms = meta.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(&p, perms);
+        }
+    }
+}
+
+/// Decrypt a document into a temporary read-only copy and open it in the
+/// program the system uses for its type. Changes made there do not come back.
+#[tauri::command(async)]
+fn doc_open(app: AppHandle, state: State<AppState>, id: String, file_name: String) -> CmdResult<()> {
+    let bytes = state.0.lock().unwrap().read_doc(&id).map_err(e)?;
+    let dir = opened_dir(&app).ok_or("io: Kein Ordner für geöffnete Dateien.")?.join(new_id());
+    std::fs::create_dir_all(&dir).map_err(io)?;
+    let path = dir.join(safe_component(&file_name));
+    std::fs::write(&path, bytes).map_err(io)?;
+    let mut perms = std::fs::metadata(&path).map_err(io)?.permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&path, perms).map_err(io)?;
+    open::that_detached(&path).map_err(|err| {
+        log::warn!("opening a document in its program failed: {}", err.kind());
+        "open_failed".to_string()
+    })
 }
 
 #[tauri::command(async)]
@@ -295,6 +386,32 @@ fn doc_export_all(window: Window, state: State<AppState>, items: Vec<ExportItem>
         count += 1;
     }
     Ok(Some(count))
+}
+
+/// Copy all data, still encrypted, into a new folder named `name` inside a
+/// folder the user picks. Resolves the new folder for display, or None on cancel.
+#[tauri::command(async)]
+fn backup_create(window: Window, state: State<AppState>, name: String) -> CmdResult<Option<String>> {
+    let Some(parent) = dialog(&window, "Wohin soll die Sicherung?")
+        .blocking_pick_folder()
+        .and_then(|p| p.into_path().ok())
+    else {
+        return Ok(None);
+    };
+    let name = safe_component(&name);
+    let mut target = parent.join(&name);
+    let mut n = 2;
+    while target.exists() {
+        target = parent.join(format!("{name} ({n})"));
+        n += 1;
+    }
+    match state.0.lock().unwrap().backup_to(&target) {
+        Ok(()) => {}
+        Err(orga_core::Error::InsideCurrent) => return Err("backup_inside".into()),
+        Err(err) => return Err(e(err)),
+    }
+    log::info!("backup written");
+    Ok(Some(target.display().to_string()))
 }
 
 /// Save an export (calendar, addresses, …) where the user chooses. Resolves false on cancel.
@@ -508,6 +625,9 @@ pub fn run() {
             app.manage(AppState(Mutex::new(Store::new(dir))));
             app.manage(DataDirs { source: Mutex::new(source), pending: Mutex::new(None) });
             app.manage(Dropped(Mutex::new(Vec::new())));
+            app.manage(Originals(Mutex::new(HashMap::new())));
+            // Copies opened in another program during an earlier run.
+            remove_opened(app.handle());
             Ok(())
         })
         .on_window_event(on_window_event)
@@ -530,6 +650,9 @@ pub fn run() {
             doc_delete,
             doc_export,
             doc_export_all,
+            doc_trash_originals,
+            doc_open,
+            backup_create,
             save_text_file,
             data_dir_pick,
             data_dir_apply,
@@ -537,8 +660,13 @@ pub fn run() {
             update_check,
             update_install
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Orga-Neo");
+        .build(tauri::generate_context!())
+        .expect("error while starting Orga-Neo")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                remove_opened(app);
+            }
+        });
 }
 
 #[cfg(test)]

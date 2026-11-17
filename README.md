@@ -25,12 +25,19 @@ Taken with the built-in sample data ("Mit Beispieldaten starten").
 - **Kontakte**: phone numbers, addresses and birthdays; birthdays appear in the
   calendar automatically
 - **Notizen**: a simple notepad; pinned notes show on the start page
-- **Dokumente**: PDFs and photos in folders (one level of subfolders), encrypted
+- **Dokumente**: PDFs, photos and office files in folders (one level of
+  subfolders), encrypted. Previews for PDF, pictures, Word (`.docx`) and
+  spreadsheets (`.xlsx`, `.csv`); every file can also be opened in its usual
+  program as a read-only copy. After adding, the app offers to move the
+  original to the Windows recycle bin. Deleted documents stay 30 days in a
+  Papierkorb
 - **Passwörter**: encrypted, with a generator for readable passphrases
 - **Anpassen**: name, greeting, text size, colour scheme (colourful, calm,
   high contrast), which tiles appear on the start page and in what order
 - **Import / export**: `.ics`, `.vcf`, `.csv` (Edge, Chrome, Bitwarden,
-  KeePass), `.txt` / `.md`, and readable copies of all documents
+  KeePass), `.txt` / `.md`, and readable (unencrypted) copies of all documents
+- **Datensicherung**: an encrypted copy of the whole data folder, for example
+  on a USB stick, with a reminder when the last one is over a month old
 
 ## How data is stored
 
@@ -52,6 +59,16 @@ update check, which downloads from GitHub.
 
 Changing the master password or printing a new emergency sheet also updates
 the copies in `backups/`, so old passwords and codes stop working there too.
+Backups made with **Datensicherung** are separate folders and keep opening
+with the password and codes valid when they were made. To restore one, choose
+its folder under **Speicherort ändern**. If the data folder is synced by
+OneDrive, OneDrive holds a further (encrypted) copy.
+
+A document opened with **Im Programm öffnen** is decrypted into a read-only
+copy under `%LOCALAPPDATA%\io.github.matthabjan.organeo\Geoeffnet` (never in
+the data folder, which OneDrive may sync). That folder is emptied when the
+vault locks, when the app closes and at the next start; a file another program
+still holds open is removed on the next try.
 
 Outside the data folder the app keeps two small files: `settings.json` with a
 chosen data folder (in `%APPDATA%\io.github.matthabjan.organeo`), and a log
@@ -71,6 +88,7 @@ member. Without one of the three, the vault cannot be opened.
 src/                 the whole interface, TypeScript without a framework
   model.ts           data types, dates, repeating appointments
   io.ts              import and export formats
+  office.ts          Word and spreadsheet previews (loaded on demand)
   backend.ts         the only door to storage (Tauri, or a browser stand-in)
   state.ts           app state, saving, dialogs, the action/form registry
   views/             one file per screen
@@ -92,7 +110,7 @@ Needs Node 22+, Rust, and on Linux the
 npm install
 npm run dev          # interface only, in a browser at localhost:1420
 npm run tauri dev    # the real desktop app
-npm test             # import/export and calendar tests
+npm test             # import/export, calendar and spreadsheet preview tests
 cd src-tauri && cargo test -p orga-core   # storage and encryption tests
 cd src-tauri && cargo test -p orga-neo    # update error handling (needs the Tauri system packages)
 ```

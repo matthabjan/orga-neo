@@ -13,7 +13,7 @@ npm install
 npm run dev                 # UI only, browser at localhost:1420 (localStorage stand-in, NOT encrypted)
 npm run tauri dev           # real desktop app
 npm run build               # tsc --noEmit (strict, noUnused*) + vite build — this is the type check
-npm test                    # vitest: src/io.test.ts (import/export + calendar logic)
+npm test                    # vitest: src/io.test.ts (import/export + calendar logic), src/office.test.ts (xlsx/csv preview, happy-dom)
 npx vitest run -t "iCalendar"            # single test/describe by name
 cd src-tauri && cargo test -p orga-core  # storage + encryption tests
 cd src-tauri && cargo test -p orga-core <name>   # single Rust test
@@ -36,7 +36,9 @@ Dependabot: the `glib` < 0.20 alert (`VariantStrIter` unsoundness) cannot be fix
 - The data folder comes from `ORGA_NEO_DIR`, else `settings.json` in the app config dir (chosen in Einstellungen), else `Documents/Orga-Neo`. A chosen folder that is missing at start shows `views/datadir.ts`'s "missing" screen, never the setup.
 - `tauri-plugin-single-instance` (registered first) keeps one copy running; `tauri-plugin-log` writes `Orga-Neo.log` to the app log dir. `Backend.logError()` sends UI errors there — never log secrets, names or contents.
 
-**No command takes a file path from the webview.** File dialogs open in Rust (`tauri_plugin_dialog::DialogExt`), dropped files are kept in Rust (`Dropped`) and fetched with `doc_add_dropped`, and a picked data folder waits in `DataDirs.pending` until `data_dir_apply`. Keep it that way: the webview has no `dialog:` permission.
+**No command takes a file path from the webview.** File dialogs open in Rust (`tauri_plugin_dialog::DialogExt`), dropped files are kept in Rust (`Dropped`) and fetched with `doc_add_dropped`, and a picked data folder waits in `DataDirs.pending` until `data_dir_apply`. The source paths of the last added documents stay in `Originals`, so `doc_trash_originals` takes only ids (and moves an original to the recycle bin only if the encrypted copy reads back identical). Keep it that way: the webview has no `dialog:` permission.
+
+**Documents outside the vault.** `doc_open` writes a read-only decrypted copy to `app_local_data_dir()/Geoeffnet/<random>/` (never the data folder: OneDrive may sync it) and opens it with the `open` crate; `remove_opened` empties that folder on `vault_lock`, at start and on `RunEvent::Exit`. `backup_create` copies the whole data folder, still encrypted, via `Store::backup_to`; such copies keep the key slots of their day (unlike `backups/`, which password/code changes rewrite).
 
 **Adding a storage operation touches four places:** the `Store` method in `core/src/lib.rs`, a command in `src-tauri/src/lib.rs` *and* its entry in `generate_handler![...]`, the `Backend` interface plus *both* implementations in `backend.ts`. New Tauri window APIs may also need a permission in `src-tauri/capabilities/default.json`; the CSP is in `tauri.conf.json`.
 
@@ -47,7 +49,7 @@ Dependabot: the `glib` < 0.20 alert (`VariantStrIter` unsoundness) cannot be fix
 - `open.json` (`OpenData` in `model.ts`): appointments, contacts, notes, settings — unencrypted so reminders work while the vault is locked. Saved debounced via `saveOpen()`.
 - vault (`VaultData`): passwords, document metadata and folders — only in memory as `S.vault` while unlocked (`null` when locked). Saved via `saveVault()`. Document bytes are stored separately as `docs/<id>.enc`.
 
-The Rust side treats both as opaque JSON strings; schema lives entirely in TypeScript. `normalizeOpen` / `normalizeVault` in `model.ts` fill defaults when loading, so add new fields there to keep old data files loading. Areas with `locked: true` in `AREAS` (`docs`, `pw`) show the unlock gate when `S.vault` is null; the vault auto-locks after `settings.autoLock` minutes idle and is always relocked on app start.
+The Rust side treats both as opaque JSON strings; schema lives entirely in TypeScript. `normalizeOpen` / `normalizeVault` in `model.ts` fill defaults when loading, so add new fields there to keep old data files loading. Deleting a document only sets `DocMeta.deleted` (Papierkorb); `purgeExpired()` in `views/docs.ts` deletes the `.enc` files after `TRASH_DAYS` on unlock, so use `liveDocs()`/`exportItems()` rather than `S.vault.docs` when listing. Areas with `locked: true` in `AREAS` (`docs`, `pw`) show the unlock gate when `S.vault` is null; the vault auto-locks after `settings.autoLock` minutes idle and is always relocked on app start.
 
 ### UI pattern (no framework)
 
@@ -58,6 +60,7 @@ The Rust side treats both as opaque JSON strings; schema lives entirely in TypeS
 - Sizes are in `rem`, so the "Schriftgröße" setting (`data-size` on `<html>`, root font 15 / 17 / 19 px in `base.css`) scales the whole layout. Change those three values rather than individual sizes.
 - Password fields: one way to reveal, the labelled "Zeigen" button (`data-act="toggle-secret"`, `data-for` lists the field and its repetition). Edge/WebView2's own eye is hidden in `styles.css`; new password fields should use `.pw-wrap` + that button.
 - README screenshots live in `docs/screenshots/` (2× PNGs at 1280×800, 256 colours). Take them from `npm run dev` after a setup with "Mit Beispieldaten starten", never with real data.
+- Document previews: PDF/images/txt via a `blob:` URL; `.docx` (docx-preview) and `.xlsx`/`.csv` (own reader in `office.ts` on JSZip — SheetJS from npm has open CVEs and its CDN is blocked in cloud sessions) are `import()`ed on demand. docx-preview runs with `renderAltChunks: false` and links are stripped, so nothing can navigate the webview.
 - Updates: `views/update.ts` (banner under the top bar, "Programm" card) goes through `checkUpdate`/`installUpdate` on `Backend`; the browser stand-in is a no-op. Check and install are our own commands (`update_check`, `update_install` in `src-tauri/src/update.rs`, wrapping `tauri-plugin-updater`'s Rust API), so the CSP stays closed to the network and the webview has no `updater:` permission. `update.rs` sorts check errors: `ReleaseNotFound` (the plugin's result for any non-2xx answer, e.g. the 404 while no release exists) counts as "no update", connection failures and timeouts become `update_offline`, everything else `update_check_failed` with details in the log. Its tests use only a local socket, but the `orga-neo` crate needs the WebKitGTK dev packages to build, so CI does not run them (`cd src-tauri && cargo test -p orga-neo update`).
 
 ### Domain logic

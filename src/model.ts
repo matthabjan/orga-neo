@@ -68,6 +68,8 @@ export interface DocMeta {
   file: string;
   size: number;
   date: string;
+  /** yyyy-mm-dd when it was moved to the Papierkorb; absent while in use. */
+  deleted?: string;
 }
 
 export interface Settings {
@@ -84,6 +86,10 @@ export interface Settings {
   categories: Category[];
   /** Minutes without input after which passwords and documents lock. */
   autoLock: number;
+  /** What happens to the original file after a document was stored encrypted. */
+  originals: "ask" | "keep" | "trash";
+  /** yyyy-mm-dd of the last backup made in the settings, "" for none. */
+  lastBackup: string;
 }
 
 export interface OpenData {
@@ -136,6 +142,19 @@ export function folderPath(folders: DocFolder[], id: string): string[] {
   return parent ? [parent.name, f.name] : [f.name];
 }
 
+/** Days a deleted document stays in the Papierkorb. */
+export const TRASH_DAYS = 30;
+
+/** Day on which a deleted document is removed for good. */
+export const purgeDay = (d: DocMeta) => addDays(parseYmd(d.deleted!), TRASH_DAYS);
+
+/** Documents in the Papierkorb whose time is up. */
+export const expiredDocs = (docs: DocMeta[], now: Date) => docs.filter((d) => d.deleted && purgeDay(d) <= startOfDay(now));
+
+/** Days since the last backup, or null when there was none. */
+export const daysSinceBackup = (s: Settings, now: Date) =>
+  s.lastBackup ? Math.round((startOfDay(now).getTime() - parseYmd(s.lastBackup).getTime()) / 864e5) : null;
+
 export const ALL_AREAS: AreaId[] = ["cal", "addr", "notes", "docs", "pw"];
 
 export function defaultSettings(): Settings {
@@ -157,6 +176,8 @@ export function defaultSettings(): Settings {
       { id: "other", name: "Sonstiges", color: "slate" },
     ],
     autoLock: 10,
+    originals: "ask",
+    lastBackup: "",
   };
 }
 

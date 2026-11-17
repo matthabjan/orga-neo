@@ -29,6 +29,7 @@ const P: Record<string, string> = {
   print: '<path d="M7 8.5V3.5h10v5"/><rect x="3.5" y="8.5" width="17" height="8" rx="2"/><path d="M7 14h10v6.5H7z"/>',
   download: '<path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M4.5 19.5h15"/>',
   upload: '<path d="M12 16V5"/><path d="m7 9.5 5-5 5 5"/><path d="M4.5 19.5h15"/>',
+  trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4h5v2.5"/><path d="m6.5 6.5 1 14h9l1-14"/><path d="M10 10.5V17M14 10.5V17"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
 };
 

@@ -212,6 +212,30 @@ impl Store {
         Ok(())
     }
 
+    /// Copy all data, still encrypted, into the new folder `target` (a backup,
+    /// e.g. on a USB stick). `target` must not exist yet and must not lie in
+    /// the data folder. On failure the partial copy is removed.
+    ///
+    /// The copy opens with the password and codes valid now; later changes do
+    /// not reach it.
+    pub fn backup_to(&self, target: &Path) -> Result<()> {
+        if resolve(target).starts_with(resolve(&self.dir)) {
+            return Err(Error::InsideCurrent);
+        }
+        if target.exists() {
+            return Err(Error::TargetHasData);
+        }
+        fs::create_dir_all(target)?;
+        let copied = DATA_ENTRIES
+            .iter()
+            .try_for_each(|name| copy_tree(&self.dir.join(name), &target.join(name)));
+        if let Err(err) = copied {
+            let _ = fs::remove_dir_all(target);
+            return Err(err.into());
+        }
+        Ok(())
+    }
+
     // ---------- open (unencrypted) data ----------
 
     pub fn read_open(&self) -> Result<String> {
@@ -1151,6 +1175,39 @@ mod tests {
         assert!(matches!(s.move_to(&old.join("docs/x"), ok), Err(Error::InsideCurrent)));
         assert!(matches!(s.move_to(&other, ok), Err(Error::TargetHasData)));
         assert!(Store::has_data(&old));
+    }
+
+    #[test]
+    fn a_backup_opens_on_its_own_and_keeps_the_original() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path().join("daten");
+        let copy = tmp.path().join("usb").join("Orga-Neo-Sicherung");
+        let (s, codes) = filled_store(&data);
+        s.backup_to(&copy).unwrap();
+        assert_eq!(s.dir(), data, "still working on the original");
+        assert!(Store::has_data(&data) && data.join("docs/abc.enc").exists());
+
+        let mut restored = store(&copy);
+        assert_eq!(restored.read_open().unwrap(), r#"{"v":1}"#);
+        assert!(matches!(restored.read_doc("abc"), Err(Error::Locked)));
+        restored.unlock(PW).unwrap();
+        assert_eq!(restored.read_doc("abc").unwrap(), b"Dokument");
+        restored.lock();
+        restored.unlock_with_code(&codes.emergency).unwrap();
+        assert!(restored.read_vault().unwrap().contains("pw"));
+    }
+
+    #[test]
+    fn a_backup_refuses_unsafe_targets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path().join("daten");
+        let (s, _) = filled_store(&data);
+        assert!(matches!(s.backup_to(&data), Err(Error::InsideCurrent)));
+        assert!(matches!(s.backup_to(&data.join("sicherung")), Err(Error::InsideCurrent)));
+        let used = tmp.path().join("belegt");
+        fs::create_dir_all(&used).unwrap();
+        assert!(matches!(s.backup_to(&used), Err(Error::TargetHasData)));
+        assert!(used.read_dir().unwrap().next().is_none(), "existing folder left alone");
     }
 
     #[test]
