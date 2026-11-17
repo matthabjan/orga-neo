@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCsv, parseIcs, parsePasswordCsv, parseVcf, toIcs, toPasswordCsv, toVcf } from "./io";
-import { Contact, Ev, addDays, dueReminders, emptyOpen, occurrences, parseYmd, ymd } from "./model";
+import { Contact, Ev, addDays, dueReminders, emptyOpen, normalizeOpen, occurrences, parseYmd, ymd } from "./model";
 
 const ev = (o: Partial<Ev>): Ev => ({ id: "e", title: "T", date: "2026-11-17", time: "", place: "", note: "", rep: "", rem: -1, cat: "other", ...o });
 const person = (o: Partial<Contact>): Contact => ({ id: "c", name: "Lukas Weber", rel: "", mobile: "", phone: "", street: "", city: "", mail: "", bday: "", note: "", ...o });
@@ -92,5 +92,15 @@ describe("appointments", () => {
     data.done["e@2026-11-17"] = true;
     expect(dueReminders(data, at("2026-11-16T10:31:00"))).toHaveLength(0);
     expect(addDays(parseYmd("2026-12-31"), 1).getFullYear()).toBe(2027);
+  });
+});
+
+describe("settings", () => {
+  it("turns the automatic update check on for data saved before the setting existed", () => {
+    expect(normalizeOpen({ settings: { autoLock: 5 } }).settings.autoUpdate).toBe(true);
+    expect(normalizeOpen(null).settings.autoUpdate).toBe(true);
+  });
+  it("keeps the automatic update check off once it was switched off", () => {
+    expect(normalizeOpen({ settings: { autoUpdate: false } }).settings.autoUpdate).toBe(false);
   });
 });
