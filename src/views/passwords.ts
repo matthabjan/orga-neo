@@ -5,7 +5,7 @@ import { Pw, newId, passphrase } from "../model";
 import { S, act, closeDialog, confirmDialog, esc, form, go, openDialog, render, saveVault, toast } from "../state";
 
 const row = (p: Pw) =>
-  `<li><button class="row" data-act="open-pw" data-id="${p.id}"><span class="av">${esc((p.name[0] ?? "?").toUpperCase())}</span><span><span class="t">${esc(p.name)}</span><br><span class="m">${esc(p.user) || "&nbsp;"}</span></span><span class="end">${esc(p.site)}</span></button></li>`;
+  `<li><button class="row" data-act="open-pw" data-id="${esc(p.id)}"><span class="av">${esc((p.name[0] ?? "?").toUpperCase())}</span><span><span class="t">${esc(p.name)}</span><br><span class="m">${esc(p.user) || "&nbsp;"}</span></span><span class="end">${esc(p.site)}</span></button></li>`;
 
 export function vPasswords(): string {
   const all = S.vault!.passwords;
@@ -41,14 +41,14 @@ function showPw(p: Pw) {
     ${val("Webseite", p.site)}
     ${p.note ? `<div class="field"><span class="lb">Notiz</span><div class="note">${esc(p.note)}</div></div>` : ""}
   </div>
-  <div class="df"><button class="btn danger left" data-act="delete-pw" data-id="${p.id}">Löschen</button><button class="btn sec" data-act="edit-pw" data-id="${p.id}">Bearbeiten</button><button class="btn pri" style="--accent:var(--green)" data-act="close">Fertig</button></div>`);
+  <div class="df"><button class="btn danger left" data-act="delete-pw" data-id="${esc(p.id)}">Löschen</button><button class="btn sec" data-act="edit-pw" data-id="${esc(p.id)}">Bearbeiten</button><button class="btn pri" style="--accent:var(--green)" data-act="close">Fertig</button></div>`);
 }
 
 function editPw(p: Pw, isNew: boolean) {
   openDialog(`<form data-form="pw" novalidate>
   <div class="dh"><h2 id="dlg-title">${isNew ? "Passwort hinzufügen" : "Eintrag ändern"}</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
   <div class="db">
-    <input type="hidden" name="id" value="${isNew ? "" : p.id}">
+    <input type="hidden" name="id" value="${isNew ? "" : esc(p.id)}">
     <div class="field"><label for="p-name">Wofür?</label><input class="inp" id="p-name" name="name" value="${esc(p.name)}" placeholder="z. B. Sparkasse Online-Banking" required autofocus></div>
     <div class="two"><div class="field"><label for="p-user">Benutzername</label><input class="inp" id="p-user" name="user" value="${esc(p.user)}" autocomplete="off"></div>
     <div class="field"><label for="p-site">Webseite <span class="opt">(freiwillig)</span></label><input class="inp" id="p-site" name="site" value="${esc(p.site)}" placeholder="sparkasse.de"></div></div>

@@ -47,12 +47,12 @@ function searchResults(q: string): string {
   const group = (title: string, rows: string[]) => {
     if (rows.length) groups.push(`<h2>${title}</h2><ul class="rows">${rows.join("")}</ul>`);
   };
-  group("Termine", d.events.filter((e) => has(e.title, e.place, e.note)).map((e) => row(`data-act="edit-event" data-id="${e.id}"`, "plum", ic("cal"), e.title, fmt(new Date(e.date + "T00:00"), { day: "numeric", month: "long", year: "numeric" }) + (e.time ? `, ${e.time} Uhr` : ""))));
-  group("Kontakte", d.contacts.filter((c) => has(c.name, c.rel, c.street, c.city, c.mobile, c.phone, c.note)).map((c) => row(`data-act="open-contact" data-id="${c.id}"`, "petrol", esc(initials(c.name)), c.name, c.mobile || c.phone || c.rel)));
-  group("Notizen", d.notes.filter((n) => has(n.title, n.text)).map((n) => row(`data-act="open-note" data-id="${n.id}"`, "mustard", ic("note"), n.title || "Ohne Titel", n.text.split("\n")[0])));
+  group("Termine", d.events.filter((e) => has(e.title, e.place, e.note)).map((e) => row(`data-act="edit-event" data-id="${esc(e.id)}"`, "plum", ic("cal"), e.title, fmt(new Date(e.date + "T00:00"), { day: "numeric", month: "long", year: "numeric" }) + (e.time ? `, ${e.time} Uhr` : ""))));
+  group("Kontakte", d.contacts.filter((c) => has(c.name, c.rel, c.street, c.city, c.mobile, c.phone, c.note)).map((c) => row(`data-act="open-contact" data-id="${esc(c.id)}"`, "petrol", esc(initials(c.name)), c.name, c.mobile || c.phone || c.rel)));
+  group("Notizen", d.notes.filter((n) => has(n.title, n.text)).map((n) => row(`data-act="open-note" data-id="${esc(n.id)}"`, "mustard", ic("note"), n.title || "Ohne Titel", n.text.split("\n")[0])));
   if (S.vault) {
-    group("Dokumente", liveDocs().filter((x) => has(x.title, x.file)).map((x) => row(`data-act="open-doc" data-id="${x.id}"`, "blue", ic("doc"), x.title, x.file)));
-    group("Passwörter", S.vault.passwords.filter((p) => has(p.name, p.site, p.user)).map((p) => row(`data-act="open-pw" data-id="${p.id}"`, "green", esc(p.name[0] ?? "?"), p.name, p.user)));
+    group("Dokumente", liveDocs().filter((x) => has(x.title, x.file)).map((x) => row(`data-act="open-doc" data-id="${esc(x.id)}"`, "blue", ic("doc"), x.title, x.file)));
+    group("Passwörter", S.vault.passwords.filter((p) => has(p.name, p.site, p.user)).map((p) => row(`data-act="open-pw" data-id="${esc(p.id)}"`, "green", esc(p.name[0] ?? "?"), p.name, p.user)));
   }
   const hint = S.vault ? "" : `<p class="hint-line">${ic("lock")}Passwörter und Dokumente werden erst durchsucht, wenn der Tresor geöffnet ist.</p>`;
   if (!groups.length) return `<p class="empty">Nichts gefunden für „${esc(S.search)}“. Versuchen Sie ein anderes Wort.</p>${hint}`;
@@ -92,8 +92,8 @@ export function vHome(): string {
               .map(({ ev, date }) => {
                 const r = relDay(date, now);
                 return `<li><div class="dbox ${r === "Heute" ? "now" : ""}"><b>${date.getDate()}</b><span>${fmt(date, { month: "short" }).replace(".", "")}</span></div>
-                <button class="agenda-b" data-act="edit-event" data-id="${ev.id}"><span class="ev-t">${esc(ev.title)}${r ? `<span class="when-rel">${r}</span>` : ""}</span>
-                <span class="ev-m">${fmt(date, { weekday: "long" })}${ev.time ? `, ${ev.time} Uhr` : ", ganztägig"}${ev.place ? `<br>${esc(ev.place)}` : ""}</span>
+                <button class="agenda-b" data-act="edit-event" data-id="${esc(ev.id)}"><span class="ev-t">${esc(ev.title)}${r ? `<span class="when-rel">${r}</span>` : ""}</span>
+                <span class="ev-m">${fmt(date, { weekday: "long" })}${ev.time ? `, ${esc(ev.time)} Uhr` : ", ganztägig"}${ev.place ? `<br>${esc(ev.place)}` : ""}</span>
                 <span class="catdot" style="${catStyle(ev.cat, "dot")}"></span></button></li>`;
               })
               .join("")}</ul>`
@@ -107,7 +107,7 @@ export function vHome(): string {
       : `<h2>Geburtstage</h2><ul class="bdays">${bdays
           .map(({ contact, date }) => {
             const r = relDay(date, now);
-            return `<li><button class="bday-b" data-act="open-contact" data-id="${contact!.id}"><span class="bd-ic">${ic("cake")}</span><span><span class="ev-t">${esc(contact!.name)}</span><br><span class="ev-m">wird ${ageOn(contact!, date)}, ${r ? relLower(date, now) : "am " + fmt(date, { day: "numeric", month: "long" })}</span></span></button></li>`;
+            return `<li><button class="bday-b" data-act="open-contact" data-id="${esc(contact!.id)}"><span class="bd-ic">${ic("cake")}</span><span><span class="ev-t">${esc(contact!.name)}</span><br><span class="ev-m">wird ${ageOn(contact!, date)}, ${r ? relLower(date, now) : "am " + fmt(date, { day: "numeric", month: "long" })}</span></span></button></li>`;
           })
           .join("")}</ul>`;
 
@@ -116,7 +116,7 @@ export function vHome(): string {
     !s.showPinned || !pins.length
       ? ""
       : `<h2 ${birthdays ? 'style="margin-top:2rem"' : ""}>Angeheftete Notizen</h2><div class="pins">${pins
-          .map((n) => `<button class="pinnote" data-act="open-note" data-id="${n.id}"><b>${esc(n.title || "Ohne Titel")}</b><span>${esc(n.text.split("\n").map((l) => l.replace(/^[-•]\s*/, "")).filter(Boolean).slice(0, 2).join("\n"))}</span></button>`)
+          .map((n) => `<button class="pinnote" data-act="open-note" data-id="${esc(n.id)}"><b>${esc(n.title || "Ohne Titel")}</b><span>${esc(n.text.split("\n").map((l) => l.replace(/^[-•]\s*/, "")).filter(Boolean).slice(0, 2).join("\n"))}</span></button>`)
           .join("")}</div>`;
 
   const side = birthdays || pinned ? `<section>${birthdays}${pinned}</section>` : "";
