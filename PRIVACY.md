@@ -8,11 +8,23 @@ advertising, no analytics and no tracking.
 ## What is stored, and where
 
 Everything you enter stays on your own computer, in the folder
-`Documents\Orga-Neo`:
+`Documents\Orga-Neo`. You can choose another folder, for example on a USB stick,
+under **Einstellungen › Daten › Speicherort ändern**.
 
 - Appointments, contacts, notes and settings are stored **unencrypted**, so that
   reminders can appear without asking for your password.
 - Passwords and documents are stored **encrypted** with your master password.
+- **Opened documents:** when you open a document in its usual program ("Im
+  Programm öffnen"), Orga-Neo puts a decrypted, read-only copy in
+  `%LOCALAPPDATA%\io.github.matthabjan.organeo\Geoeffnet`, never in the data
+  folder. These copies are deleted when passwords and documents are locked, when
+  Orga-Neo closes and when it starts the next time. A copy that another program
+  still has open is deleted at the next of these moments.
+- **Datensicherung** copies the whole data folder to a folder you choose, for
+  example on a USB stick. The copy is protected like the original: passwords and
+  documents stay **encrypted**; appointments, contacts and notes do not.
+- A small file `settings.json` in `%APPDATA%\io.github.matthabjan.organeo`
+  remembers a data folder you chose.
 - The program also keeps a log file for troubleshooting in
   `%LOCALAPPDATA%\io.github.matthabjan.organeo\logs`. It contains technical
   messages, not your entries, and it never leaves your computer.
@@ -30,8 +42,10 @@ about the request. No personal data and nothing you entered in Orga-Neo is sent.
 GitHub's handling of this is described in the
 [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
 
-You can turn off the automatic check in **Einstellungen › Programm**. You can
-still search for updates by hand.
+You can turn off the automatic check in **Einstellungen › Programm** ("Automatisch
+nach Updates suchen"; on unless you switch it off). Orga-Neo then does not contact
+GitHub at start; you can still search for updates by hand with "Nach Updates
+suchen".
 
 ## Other components outside Orga-Neo's control
 
@@ -45,7 +59,8 @@ still search for updates by hand.
 ## Files you create yourself
 
 Exports (calendar, contacts, notes, passwords as CSV, copies of documents) and the
-printed recovery sheets are **not encrypted**. Keep them as carefully as you would
+printed recovery sheets are **not encrypted**. A Datensicherung is encrypted only
+as far as the original is (see above). Keep them as carefully as you would
 the original papers.
 
 ## Contact
@@ -61,19 +76,38 @@ Orga-Neo ist so gebaut, dass Ihre Daten bei Ihnen bleiben. Es gibt kein Konto,
 keine Werbung, keine Auswertung Ihrer Nutzung und keine Verfolgung.
 
 **Was wo gespeichert wird:** Alles, was Sie eingeben, bleibt auf Ihrem Computer im
-Ordner `Dokumente\Orga-Neo`. Termine, Kontakte, Notizen und Einstellungen sind
-**nicht verschlüsselt**, damit Erinnerungen ohne Passwort erscheinen. Passwörter
-und Dokumente sind mit Ihrem Master-Passwort **verschlüsselt**. Eine Protokolldatei
-für die Fehlersuche liegt unter
+Ordner `Dokumente\Orga-Neo`. Unter **Einstellungen › Daten › Speicherort ändern**
+können Sie einen anderen Ordner wählen, zum Beispiel auf einem USB-Stick. Termine,
+Kontakte, Notizen und Einstellungen sind **nicht verschlüsselt**, damit
+Erinnerungen ohne Passwort erscheinen. Passwörter und Dokumente sind mit Ihrem
+Master-Passwort **verschlüsselt**. Nichts davon wird an den Entwickler oder an
+andere geschickt.
+
+**Geöffnete Dokumente:** Wenn Sie ein Dokument mit „Im Programm öffnen“ ansehen,
+legt Orga-Neo eine entschlüsselte Kopie, die sich nicht ändern lässt, unter
+`%LOCALAPPDATA%\io.github.matthabjan.organeo\Geoeffnet` ab, nie im Datenordner.
+Diese Kopien werden gelöscht, wenn Passwörter und Dokumente geschlossen werden,
+wenn Orga-Neo beendet wird und beim nächsten Start. Eine Kopie, die ein anderes
+Programm noch geöffnet hat, wird beim nächsten dieser Anlässe gelöscht.
+
+**Datensicherung:** Sie kopiert den ganzen Datenordner in einen Ordner Ihrer Wahl,
+zum Beispiel auf einen USB-Stick. Die Kopie ist geschützt wie das Original:
+Passwörter und Dokumente bleiben **verschlüsselt**, Termine, Kontakte und Notizen
+nicht.
+
+**Weitere Dateien:** Die kleine Datei `settings.json` unter
+`%APPDATA%\io.github.matthabjan.organeo` merkt sich einen gewählten Datenordner.
+Eine Protokolldatei für die Fehlersuche liegt unter
 `%LOCALAPPDATA%\io.github.matthabjan.organeo\logs`; sie enthält technische
-Meldungen, nicht Ihre Einträge. Nichts davon wird an den Entwickler oder an andere
-geschickt.
+Meldungen, nicht Ihre Einträge.
 
 **Suche nach Updates:** Orga-Neo fragt kurz nach dem Start und wenn Sie auf „Nach
 Updates suchen“ klicken bei **GitHub** nach einer neuen Version. Dabei sieht
 GitHub, wie bei jeder Webseite, Ihre IP-Adresse und technische Angaben zur Anfrage.
 Persönliche Daten oder Ihre Einträge werden nicht übertragen. Die automatische
-Suche lässt sich unter **Einstellungen › Programm** ausschalten.
+Suche lässt sich unter **Einstellungen › Programm** mit „Automatisch nach Updates
+suchen“ ausschalten (sie ist eingeschaltet, bis Sie das tun). Dann fragt Orga-Neo
+beim Start nicht bei GitHub nach; „Nach Updates suchen“ funktioniert weiterhin.
 
 **Andere Bestandteile:** Das Programmfenster nutzt **Microsoft WebView2**, einen
 Teil von Windows; dafür gelten Ihre Windows-Einstellungen und die
@@ -83,6 +117,7 @@ Passwörter und Dokumente bleiben dort verschlüsselt, Termine, Kontakte und Not
 nicht.
 
 **Selbst erstellte Dateien:** Exporte und die gedruckten Notfallblätter sind
-**nicht verschlüsselt**. Bewahren Sie sie so sorgfältig auf wie die Originalpapiere.
+**nicht verschlüsselt**. Eine Datensicherung ist nur so weit verschlüsselt wie das
+Original (siehe oben). Bewahren Sie sie so sorgfältig auf wie die Originalpapiere.
 
 **Fragen:** bitte über <https://github.com/matthabjan/orga-neo/issues>.

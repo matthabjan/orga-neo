@@ -36,8 +36,9 @@ Taken with the built-in sample data ("Mit Beispieldaten starten").
   high contrast), which tiles appear on the start page and in what order
 - **Import / export**: `.ics`, `.vcf`, `.csv` (Edge, Chrome, Bitwarden,
   KeePass), `.txt` / `.md`, and readable (unencrypted) copies of all documents
-- **Datensicherung**: an encrypted copy of the whole data folder, for example
-  on a USB stick, with a reminder when the last one is over a month old
+- **Datensicherung**: a copy of the whole data folder, for example on a USB
+  stick (passwords and documents stay encrypted), with a reminder when the last
+  one is over a month old
 
 ## How data is stored
 
@@ -48,7 +49,8 @@ from the old folder. A folder that already holds Orga-Neo data can be opened
 instead. If the chosen folder is not reachable at start, the app says so
 rather than starting a new, empty setup. For testing, `ORGA_NEO_DIR` overrides
 the setting. Your data is never sent anywhere; the only network access is the
-update check, which downloads from GitHub.
+update check, which downloads from GitHub and can be switched off. What is
+stored where, and what GitHub sees, is summed up in [PRIVACY.md](PRIVACY.md).
 
 | File | Content | Encrypted |
 |---|---|---|
@@ -128,8 +130,9 @@ code-signed, so Windows shows an "unknown publisher" warning once.
 
 ## Updates
 
-The installed app looks for a new version about ten seconds after it starts
-(and when the user clicks **Einstellungen → Programm → Nach Updates suchen**).
+The installed app looks for a new version about ten seconds after it starts,
+unless **Einstellungen → Programm → Automatisch nach Updates suchen** is switched
+off (it is on by default), and whenever the user clicks **Nach Updates suchen**.
 It reads `latest.json` from the newest GitHub release (pre-releases are not
 seen); the download is checked against the public key in `tauri.conf.json`
 before it is installed. Check and install run in the Rust part of the app, so

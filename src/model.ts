@@ -90,6 +90,8 @@ export interface Settings {
   originals: "ask" | "keep" | "trash";
   /** yyyy-mm-dd of the last backup made in the settings, "" for none. */
   lastBackup: string;
+  /** Look for a new version on GitHub shortly after the start. */
+  autoUpdate: boolean;
 }
 
 export interface OpenData {
@@ -178,6 +180,7 @@ export function defaultSettings(): Settings {
     autoLock: 10,
     originals: "ask",
     lastBackup: "",
+    autoUpdate: true,
   };
 }
 

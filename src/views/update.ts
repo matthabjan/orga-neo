@@ -26,6 +26,8 @@ export function vProgramCard(): string {
   return `<section class="card"><h2>Programm</h2>
     <p class="lead">Installierte Version: ${esc(S.appVersion)}</p>
     ${S.logDir ? `<p class="hint-line">Protokolldatei für Hilfe aus der Ferne: ${esc(S.logDir)}</p>` : ""}
+    <label class="check"><input type="checkbox" data-toggle="autoUpdate" ${S.data.settings.autoUpdate ? "checked" : ""}><span>Automatisch nach Updates suchen</span></label>
+    <p class="hint-line">Kurz nach dem Start fragt Orga-Neo bei GitHub nach einer neuen Version. Dabei werden keine persönlichen Daten übertragen.</p>
     <div class="btnrow"><button class="btn sec" data-act="update-check">Nach Updates suchen</button></div>
   </section>`;
 }
@@ -34,7 +36,7 @@ const updateBlocked = () => S.view === "setup" || !!document.querySelector("dial
 
 /** Look for an update once, shortly after the start. Stays silent on every error (offline, no release). */
 export function scheduleUpdateCheck() {
-  if (S.backend.kind !== "tauri" || import.meta.env.DEV) return;
+  if (S.backend.kind !== "tauri" || import.meta.env.DEV || !S.data.settings.autoUpdate) return;
   window.setTimeout(async () => {
     try {
       const version = await S.backend.checkUpdate();
