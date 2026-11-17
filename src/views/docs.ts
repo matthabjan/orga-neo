@@ -21,7 +21,7 @@ function tile(d: DocMeta): string {
   const page = isImage(d.file)
     ? `<div class="page photo"><div class="card"></div><span class="ft">Foto</span></div>`
     : `<div class="page"><div class="ln h"></div>${'<div class="ln"></div>'.repeat(3)}<div class="ln" style="width:70%"></div><div class="ln" style="margin-top:.9rem"></div><div class="ln" style="width:85%"></div><span class="ft">${esc(kind(d.file))}</span></div>`;
-  return `<button class="doc" data-act="open-doc" data-id="${d.id}">${page}<span class="t">${esc(d.title)}</span><span class="m">Abgelegt am ${fmt(parseYmd(d.date), { day: "numeric", month: "short", year: "numeric" })}</span></button>`;
+  return `<button class="doc" data-act="open-doc" data-id="${esc(d.id)}">${page}<span class="t">${esc(d.title)}</span><span class="m">Abgelegt am ${fmt(parseYmd(d.date), { day: "numeric", month: "short", year: "numeric" })}</span></button>`;
 }
 
 export function vDocs(): string {
@@ -29,7 +29,7 @@ export function vDocs(): string {
   const top = v.folders.filter((f) => !f.parent);
   const cur = v.folders.find((f) => f.id === S.docFolder);
   const item = (f: DocFolder, sub: boolean) =>
-    `<li><button class="frow ${sub ? "sub" : ""}" data-act="doc-folder" data-id="${f.id}" ${f.id === S.docFolder ? 'aria-current="true"' : ""}>${ic("folder")}<span>${esc(f.name)}</span><small>${docsIn(sub ? [f.id] : subtree(f.id)).length}</small></button></li>`;
+    `<li><button class="frow ${sub ? "sub" : ""}" data-act="doc-folder" data-id="${esc(f.id)}" ${f.id === S.docFolder ? 'aria-current="true"' : ""}>${ic("folder")}<span>${esc(f.name)}</span><small>${docsIn(sub ? [f.id] : subtree(f.id)).length}</small></button></li>`;
   const tree = `<ul class="ftree"><li><button class="frow" data-act="doc-folder" data-id="" ${!cur ? 'aria-current="true"' : ""}>${ic("doc")}<span>Alle Dokumente</span><small>${v.docs.length}</small></button></li>
     ${top.map((f) => item(f, false) + children(f.id).map((c) => item(c, true)).join("")).join("")}</ul>
     <button class="btn sec" data-act="new-folder" data-parent="" style="width:100%;margin-top:.8rem">${ic("plus")}Neuer Ordner</button>`;
@@ -47,9 +47,9 @@ export function vDocs(): string {
 
   const folderBar = cur
     ? `<div class="fbar"><h2>${folderPath(v.folders, cur.id).map(esc).join(" › ")}</h2><span class="hubsp"></span>
-        ${!cur.parent ? `<button class="btn ghost" data-act="new-folder" data-parent="${cur.id}">${ic("plus")}Unterordner</button>` : ""}
-        <button class="btn ghost" data-act="rename-folder" data-id="${cur.id}">Umbenennen</button>
-        <button class="btn ghost" data-act="delete-folder" data-id="${cur.id}">Ordner löschen</button></div>`
+        ${!cur.parent ? `<button class="btn ghost" data-act="new-folder" data-parent="${esc(cur.id)}">${ic("plus")}Unterordner</button>` : ""}
+        <button class="btn ghost" data-act="rename-folder" data-id="${esc(cur.id)}">Umbenennen</button>
+        <button class="btn ghost" data-act="delete-folder" data-id="${esc(cur.id)}">Ordner löschen</button></div>`
     : "";
 
   return `<header class="ph"><div><h1>Dokumente</h1><p>Ihre wichtigen Unterlagen, verschlüsselt und nach Ordnern sortiert.</p></div>
@@ -61,7 +61,7 @@ const folderOptions = (sel: string) =>
   S.vault!.folders
     .filter((f) => !f.parent)
     .flatMap((f) => [f, ...children(f.id)])
-    .map((f) => `<option value="${f.id}" ${f.id === sel ? "selected" : ""}>${esc(folderPath(S.vault!.folders, f.id).join(" › "))}</option>`)
+    .map((f) => `<option value="${esc(f.id)}" ${f.id === sel ? "selected" : ""}>${esc(folderPath(S.vault!.folders, f.id).join(" › "))}</option>`)
     .join("");
 
 /** Register freshly encrypted files in the document list. */
@@ -91,11 +91,11 @@ async function showDoc(d: DocMeta) {
     `<form data-form="doc" novalidate>
     <div class="dh"><div><h2 id="dlg-title">${esc(d.title)}</h2><div class="m">${esc(kind(d.file))}, ${size(d.size)}, abgelegt am ${fmt(parseYmd(d.date), { day: "numeric", month: "long", year: "numeric" })}</div></div><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
     <div class="db">${preview}
-      <input type="hidden" name="id" value="${d.id}">
+      <input type="hidden" name="id" value="${esc(d.id)}">
       <div class="two" style="margin-top:1.2rem"><div class="field"><label for="d-title">Name</label><input class="inp" id="d-title" name="title" value="${esc(d.title)}" required></div>
       <div class="field"><label for="d-folder">Ordner</label><select class="inp" id="d-folder" name="folder">${folderOptions(d.folder)}</select></div></div>
     </div>
-    <div class="df"><button type="button" class="btn danger left" data-act="delete-doc" data-id="${d.id}">Löschen</button><button type="button" class="btn sec" data-act="export-doc" data-id="${d.id}">${ic("download")}Kopie speichern</button><button class="btn pri" style="--accent:var(--blue)">Speichern</button></div></form>`,
+    <div class="df"><button type="button" class="btn danger left" data-act="delete-doc" data-id="${esc(d.id)}">Löschen</button><button type="button" class="btn sec" data-act="export-doc" data-id="${esc(d.id)}">${ic("download")}Kopie speichern</button><button class="btn pri" style="--accent:var(--blue)">Speichern</button></div></form>`,
     { wide: true, onClose: () => url && URL.revokeObjectURL(url) },
   );
 }
@@ -103,7 +103,7 @@ async function showDoc(d: DocMeta) {
 function folderDialog(f: DocFolder, isNew: boolean) {
   openDialog(`<form data-form="folder" novalidate>
     <div class="dh"><h2 id="dlg-title">${isNew ? (f.parent ? "Neuer Unterordner" : "Neuer Ordner") : "Ordner umbenennen"}</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
-    <div class="db"><input type="hidden" name="id" value="${isNew ? "" : f.id}"><input type="hidden" name="parent" value="${f.parent}">
+    <div class="db"><input type="hidden" name="id" value="${isNew ? "" : esc(f.id)}"><input type="hidden" name="parent" value="${esc(f.parent)}">
       <div class="field"><label for="fo-name">Name${f.parent && isNew ? ` <span class="opt">(in „${esc(S.vault!.folders.find((x) => x.id === f.parent)?.name ?? "")}“)</span>` : ""}</label><input class="inp" id="fo-name" name="name" value="${esc(f.name)}" required autofocus></div>
       <p class="err" id="form-err" role="alert"></p></div>
     <div class="df"><button type="button" class="btn ghost" data-act="close">Abbrechen</button><button class="btn pri" style="--accent:var(--blue)">Speichern</button></div></form>`);

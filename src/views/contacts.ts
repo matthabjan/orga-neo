@@ -19,7 +19,7 @@ export function vContacts(): string {
       rows += `<li class="letter" aria-hidden="true">${esc(letter)}</li>`;
       last = letter;
     }
-    rows += `<li><button class="row" data-act="select-contact" data-id="${x.id}" ${x.id === c?.id ? 'aria-current="true"' : ""}><span class="av">${esc(initials(x.name))}</span><span><span class="t">${esc(x.name)}</span><br><span class="m">${esc(x.rel) || "&nbsp;"}</span></span></button></li>`;
+    rows += `<li><button class="row" data-act="select-contact" data-id="${esc(x.id)}" ${x.id === c?.id ? 'aria-current="true"' : ""}><span class="av">${esc(initials(x.name))}</span><span><span class="t">${esc(x.name)}</span><br><span class="m">${esc(x.rel) || "&nbsp;"}</span></span></button></li>`;
   }
 
   let detail = "";
@@ -35,7 +35,7 @@ export function vContacts(): string {
       ${kv("mail", "E-Mail", esc(c.mail))}
       ${kv("cake", "Geburtstag", c.bday ? fmt(parseYmd(c.bday), { day: "numeric", month: "long", year: "numeric" }) + (next ? `<br><span class="soft">wird ${ageOn(c, next.date)} ${relLower(next.date, now) || "am " + fmt(next.date, { day: "numeric", month: "long" })}</span>` : "") : "")}
       ${kv("note", "Notiz", esc(c.note))}
-      <div class="det-f"><button class="btn sec" data-act="edit-contact" data-id="${c.id}">Bearbeiten</button><button class="btn ghost" data-act="delete-contact" data-id="${c.id}">Löschen</button></div>
+      <div class="det-f"><button class="btn sec" data-act="edit-contact" data-id="${esc(c.id)}">Bearbeiten</button><button class="btn ghost" data-act="delete-contact" data-id="${esc(c.id)}">Löschen</button></div>
     </article>`;
   }
 
@@ -54,7 +54,7 @@ function contactDialog(c: Contact, isNew: boolean, short = false) {
   openDialog(`<form data-form="contact" novalidate>
   <div class="dh"><h2 id="dlg-title">${short ? "Geburtstag eintragen" : isNew ? "Person hinzufügen" : "Kontakt ändern"}</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
   <div class="db">
-    <input type="hidden" name="id" value="${isNew ? "" : c.id}">
+    <input type="hidden" name="id" value="${isNew ? "" : esc(c.id)}">
     ${f("name", "Name", 'required autofocus placeholder="Vorname Nachname"')}
     ${short ? `${f("bday", "Geburtstag", 'type="date" required')}<p class="hint-line">Die Person wird in Ihren Kontakten angelegt. Telefon und Adresse können Sie dort später ergänzen.</p>` : `
     ${f("rel", "Wer ist das? <span class=\"opt\">(z. B. Tochter, Hausarzt)</span>")}

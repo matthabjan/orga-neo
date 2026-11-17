@@ -39,10 +39,10 @@ export function vSettings(): string {
   const cats = s.categories
     .map(
       (c) => `<li class="orow"><span class="swatches" role="group" aria-label="Farbe für ${esc(c.name)}">${Object.entries(CAT_COLORS)
-        .map(([k, v]) => `<button class="swatch" style="background:${v.c}" data-act="cat-color" data-id="${c.id}" data-color="${k}" aria-pressed="${c.color === k}" aria-label="${v.name}"></button>`)
+        .map(([k, v]) => `<button class="swatch" style="background:${v.c}" data-act="cat-color" data-id="${esc(c.id)}" data-color="${k}" aria-pressed="${c.color === k}" aria-label="${v.name}"></button>`)
         .join("")}</span>
-      <input class="inp" data-cat-name="${c.id}" value="${esc(c.name)}" aria-label="Name der Kategorie">
-      ${c.id === BDAY_CAT ? `<span class="fixed">aus Kontakten</span>` : `<button class="btn ghost" data-act="cat-delete" data-id="${c.id}">Löschen</button>`}</li>`,
+      <input class="inp" data-cat-name="${esc(c.id)}" value="${esc(c.name)}" aria-label="Name der Kategorie">
+      ${c.id === BDAY_CAT ? `<span class="fixed">aus Kontakten</span>` : `<button class="btn ghost" data-act="cat-delete" data-id="${esc(c.id)}">Löschen</button>`}</li>`,
     )
     .join("");
 

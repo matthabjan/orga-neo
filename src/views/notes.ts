@@ -10,7 +10,7 @@ function listHtml(sel?: Note): string {
   const q = S.search.trim().toLowerCase();
   const list = sorted(S.data.notes.filter((n) => !q || (n.title + " " + n.text).toLowerCase().includes(q)));
   const item = (x: Note) =>
-    `<li><button class="row nrow" data-act="select-note" data-id="${x.id}" ${x.id === sel?.id ? 'aria-current="true"' : ""}><span><span class="t">${x.pin ? `<span class="pinmark">${ic("tack")}</span>` : ""}${esc(x.title || "Ohne Titel")}</span><br><span class="m">${esc(x.text.split("\n").find(Boolean) ?? "") || "&nbsp;"}</span></span><span class="end">${fmt(parseYmd(x.date), { day: "numeric", month: "short" })}</span></button></li>`;
+    `<li><button class="row nrow" data-act="select-note" data-id="${esc(x.id)}" ${x.id === sel?.id ? 'aria-current="true"' : ""}><span><span class="t">${x.pin ? `<span class="pinmark">${ic("tack")}</span>` : ""}${esc(x.title || "Ohne Titel")}</span><br><span class="m">${esc(x.text.split("\n").find(Boolean) ?? "") || "&nbsp;"}</span></span><span class="end">${fmt(parseYmd(x.date), { day: "numeric", month: "short" })}</span></button></li>`;
   const pinned = list.filter((x) => x.pin);
   const rest = list.filter((x) => !x.pin);
   return `${pinned.length ? `<div class="letter">Angeheftet</div><ul class="rows sel">${pinned.map(item).join("")}</ul>` : ""}
@@ -23,10 +23,10 @@ export function vNotes(): string {
   const body = S.data.notes.length
     ? `<div class="split notes"><div><label class="search" style="margin-bottom:.4rem;display:block"><span class="sr">Notizen durchsuchen</span>${ic("search")}<input id="q" type="search" placeholder="In Notizen suchen" value="${esc(S.search)}"></label><div id="note-list">${listHtml(n)}</div></div>
       ${n ? `<article class="paper">
-        <input class="ntitle" id="note-title" data-id="${n.id}" value="${esc(n.title)}" placeholder="Titel" aria-label="Titel der Notiz">
+        <input class="ntitle" id="note-title" data-id="${esc(n.id)}" value="${esc(n.title)}" placeholder="Titel" aria-label="Titel der Notiz">
         <div class="nmeta" id="note-meta">Zuletzt geändert am ${fmt(parseYmd(n.date), { day: "numeric", month: "long", year: "numeric" })}</div>
-        <textarea class="ntext" id="note-text" data-id="${n.id}" placeholder="Hier schreiben …" aria-label="Text der Notiz">${esc(n.text)}</textarea>
-        <div class="det-f"><button class="btn sec" data-act="pin-note" data-id="${n.id}">${ic("tack")}${n.pin ? "Nicht mehr anheften" : "Auf der Startseite anheften"}</button><button class="btn ghost" data-act="delete-note" data-id="${n.id}">Löschen</button></div>
+        <textarea class="ntext" id="note-text" data-id="${esc(n.id)}" placeholder="Hier schreiben …" aria-label="Text der Notiz">${esc(n.text)}</textarea>
+        <div class="det-f"><button class="btn sec" data-act="pin-note" data-id="${esc(n.id)}">${ic("tack")}${n.pin ? "Nicht mehr anheften" : "Auf der Startseite anheften"}</button><button class="btn ghost" data-act="delete-note" data-id="${esc(n.id)}">Löschen</button></div>
       </article>` : ""}</div>`
     : `<div class="blank">${ic("note")}<h2>Noch keine Notizen</h2><p>Einkaufsliste, Fragen an den Arzt, Zählerstände: alles, was Sie sich merken möchten.</p><button class="btn pri big" data-act="new-note">${ic("plus")}Erste Notiz schreiben</button></div>`;
   return `<header class="ph"><div><h1>Notizen</h1><p>Alles, was Sie sich merken möchten. Wird beim Schreiben gespeichert.</p></div>

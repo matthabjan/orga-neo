@@ -40,7 +40,7 @@ export function checkReminders() {
   const rel = relDay(due.date, now);
   const when = rel ? `${relLower(due.date, now)}, ${fmt(due.date, { weekday: "long" })}` : fmt(due.date, { weekday: "long", day: "numeric", month: "long" });
   const title = due.contact ? `${due.contact.name} hat Geburtstag` : due.ev.title;
-  const line = due.contact ? `wird ${ageOn(due.contact, due.date)} Jahre alt` : due.ev.time ? `${due.ev.time} Uhr` : "Ganztägig";
+  const line = due.contact ? `wird ${ageOn(due.contact, due.date)} Jahre alt` : due.ev.time ? `${esc(due.ev.time)} Uhr` : "Ganztägig";
   const late = !due.contact && start.getTime() < now.getTime() && due.ev.time;
   box.innerHTML = `<div class="remind">
     <div class="rbell" style="${catStyle(due.ev.cat, "solid")}" aria-hidden="true">${ic(due.contact ? "cake" : "bell")}</div>
