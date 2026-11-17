@@ -71,6 +71,9 @@ pub struct Kdf {
     pub p: u32,
 }
 
+/// Highest Argon2 settings accepted from a file: 1 GiB, 10 passes, 8 lanes.
+const MAX_KDF: Kdf = Kdf { m: 1024 * 1024, t: 10, p: 8 };
+
 impl Default for Kdf {
     fn default() -> Self {
         Kdf { m: 64 * 1024, t: 3, p: 1 }
@@ -475,7 +478,13 @@ fn open(key: &Key, sealed: &Sealed, aad: &[u8]) -> Result<Vec<u8>> {
 /// `file_kdf` is used for slots written before each slot stored its own settings.
 fn unwrap_slot(slot: &Slot, secret: &[u8], file_kdf: Kdf) -> Result<Key> {
     let salt = B64.decode(&slot.salt).map_err(|_| Error::Corrupt)?;
-    let kek = derive(secret, &salt, slot.kdf.unwrap_or(file_kdf))?;
+    let kdf = slot.kdf.unwrap_or(file_kdf);
+    // The settings come from the file: refuse values that would exhaust
+    // memory or take minutes, instead of trying them.
+    if kdf.m > MAX_KDF.m || kdf.t > MAX_KDF.t || kdf.p > MAX_KDF.p {
+        return Err(Error::Corrupt);
+    }
+    let kek = derive(secret, &salt, kdf)?;
     let plain = Zeroizing::new(open(
         &kek,
         &Sealed { nonce: slot.nonce.clone(), ct: slot.ct.clone() },
@@ -839,6 +848,18 @@ mod tests {
         s.unlock(PW).unwrap();
         s.lock();
         s.unlock_with_code(&codes.emergency).unwrap();
+    }
+
+    #[test]
+    fn absurd_kdf_settings_in_the_file_are_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        store(tmp.path()).create_vault(PW).unwrap();
+        let path = tmp.path().join("vault.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        // 4 TiB would exhaust memory long before failing on its own
+        v["slots"]["password"]["kdf"]["m"] = serde_json::json!(u32::MAX);
+        fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
+        assert!(matches!(store(tmp.path()).unlock(PW), Err(Error::Corrupt)));
     }
 
     fn filled_store(dir: &Path) -> (Store, Codes) {
