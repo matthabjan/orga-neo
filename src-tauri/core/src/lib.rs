@@ -13,6 +13,13 @@
 //! (XChaCha20-Poly1305). The vault key itself is stored three times, each copy
 //! wrapped with a key derived by Argon2id from a different secret: the master
 //! password, the recovery code and the family emergency code.
+//!
+//! Creating new codes (or changing the password together with new codes)
+//! replaces the vault key itself and re-encrypts everything, so an old copy
+//! of vault.json opened with an old secret cannot read today's data. While
+//! that re-encryption is unfinished, vault.json holds the previous key
+//! (sealed with the new one) and documents are read with either key; the
+//! next unlock finishes the job after a crash.
 
 use std::fs;
 use std::io::Write;
@@ -111,6 +118,10 @@ struct VaultFile {
     kdf: Kdf,
     slots: Slots,
     data: Sealed,
+    /// The previous vault key, sealed with the current one, while a key
+    /// change is not finished yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prev: Option<Sealed>,
 }
 
 /// The two printed codes that can open the vault without the master password.
@@ -128,16 +139,18 @@ pub struct Store {
     dir: PathBuf,
     kdf: Kdf,
     key: Option<Key>,
+    /// The previous key while a key change is unfinished.
+    prev: Option<Key>,
 }
 
 impl Store {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Store { dir: dir.into(), kdf: Kdf::default(), key: None }
+        Store { dir: dir.into(), kdf: Kdf::default(), key: None, prev: None }
     }
 
     /// Use cheaper key derivation. Only for tests.
     pub fn with_kdf(dir: impl Into<PathBuf>, kdf: Kdf) -> Self {
-        Store { dir: dir.into(), kdf, key: None }
+        Store { dir: dir.into(), kdf, key: None, prev: None }
     }
 
     pub fn dir(&self) -> &Path {
@@ -232,6 +245,7 @@ impl Store {
                 emergency: self.wrap(&key, normalize_code(&codes.emergency).as_bytes())?,
             },
             data: seal(&key, b"{\"passwords\":[],\"docs\":[]}", b"vault-data")?,
+            prev: None,
         };
         self.save_vault_file(&file)?;
         self.key = Some(key);
@@ -241,8 +255,7 @@ impl Store {
     pub fn unlock(&mut self, password: &str) -> Result<()> {
         let file = self.load_vault_file()?;
         let key = unwrap_slot(&file.slots.password, password.as_bytes(), file.kdf)?;
-        self.key = Some(key);
-        Ok(())
+        self.open_with(key, &file)
     }
 
     /// Open the vault with the recovery code or the emergency code.
@@ -251,8 +264,7 @@ impl Store {
         let code = normalize_code(code);
         for slot in [&file.slots.recovery, &file.slots.emergency] {
             if let Ok(key) = unwrap_slot(slot, code.as_bytes(), file.kdf) {
-                self.key = Some(key);
-                return Ok(());
+                return self.open_with(key, &file);
             }
         }
         Err(Error::WrongSecret)
@@ -260,6 +272,23 @@ impl Store {
 
     pub fn lock(&mut self) {
         self.key = None;
+        self.prev = None;
+    }
+
+    /// Keep `key` as the open vault key. Finishes a key change that a crash
+    /// interrupted; if that fails again, documents stay readable with either
+    /// key and the next unlock tries once more.
+    fn open_with(&mut self, key: Key, file: &VaultFile) -> Result<()> {
+        let prev = match &file.prev {
+            Some(sealed) => Some(open_key(&key, sealed, b"vault-prev-key")?),
+            None => None,
+        };
+        self.key = Some(key);
+        self.prev = prev;
+        if self.prev.is_some() {
+            let _ = self.finish_key_change();
+        }
+        Ok(())
     }
 
     /// Set a new master password. The vault must be unlocked.
@@ -270,20 +299,97 @@ impl Store {
         let mut file = self.load_vault_file()?;
         file.slots.password = self.wrap(&key, new_password.as_bytes())?;
         self.save_vault_file(&file)?;
-        self.rewrap_backups(&key, &file.slots)
+        self.reseal_backups(&key, &key, &file.slots)
     }
 
-    /// Replace both printed codes. The old ones stop working, also for the
-    /// copies in backups/.
-    pub fn new_codes(&mut self) -> Result<Codes> {
+    /// Replace both printed codes and the vault key. The master password is
+    /// needed because its slot must be written again for the new key. The
+    /// old codes stop working, also for the copies in backups/, and an old
+    /// copy of vault.json no longer opens today's data or documents.
+    pub fn new_codes(&mut self, password: &str) -> Result<Codes> {
         let key = self.key.clone().ok_or(Error::Locked)?;
-        let mut file = self.load_vault_file()?;
-        let codes = Codes { recovery: new_code(), emergency: new_code() };
-        file.slots.recovery = self.wrap(&key, normalize_code(&codes.recovery).as_bytes())?;
-        file.slots.emergency = self.wrap(&key, normalize_code(&codes.emergency).as_bytes())?;
-        self.save_vault_file(&file)?;
-        self.rewrap_backups(&key, &file.slots)?;
+        let file = self.load_vault_file()?;
+        let given = unwrap_slot(&file.slots.password, password.as_bytes(), file.kdf)?;
+        if given[..] != key[..] {
+            return Err(Error::WrongSecret);
+        }
+        self.change_key(password)
+    }
+
+    /// Set a new master password, new codes and a new vault key at once.
+    pub fn change_password_and_codes(&mut self, new_password: &str) -> Result<Codes> {
+        check_password(new_password)?;
+        self.change_key(new_password)
+    }
+
+    /// Replace the vault key and all three slots. Once the new vault.json is
+    /// written the codes are valid and returned, even if re-encrypting the
+    /// documents and backups has to be finished at the next unlock.
+    fn change_key(&mut self, password: &str) -> Result<Codes> {
+        if self.prev.is_some() {
+            // never stack two unfinished key changes: the oldest key would be lost
+            self.finish_key_change()?;
+        }
+        let codes = self.start_key_change(password)?;
+        let _ = self.finish_key_change();
         Ok(codes)
+    }
+
+    /// Step 1: write vault.json with the new key, new slots and the old key
+    /// sealed inside. Nothing else changes yet.
+    fn start_key_change(&mut self, password: &str) -> Result<Codes> {
+        let old = self.key.clone().ok_or(Error::Locked)?;
+        let mut file = self.load_vault_file()?;
+        let plain = Zeroizing::new(open(&old, &file.data, b"vault-data")?);
+        let mut key: Key = Zeroizing::new([0u8; 32]);
+        OsRng.fill_bytes(&mut key[..]);
+        let codes = Codes { recovery: new_code(), emergency: new_code() };
+        file.slots = Slots {
+            password: self.wrap(&key, password.as_bytes())?,
+            recovery: self.wrap(&key, normalize_code(&codes.recovery).as_bytes())?,
+            emergency: self.wrap(&key, normalize_code(&codes.emergency).as_bytes())?,
+        };
+        file.data = seal(&key, &plain, b"vault-data")?;
+        file.prev = Some(seal(&key, &old[..], b"vault-prev-key")?);
+        self.save_vault_file(&file)?;
+        self.key = Some(key);
+        self.prev = Some(old);
+        Ok(codes)
+    }
+
+    /// Step 2: re-encrypt documents and backups with the new key, then drop
+    /// the old key from vault.json. Safe to repeat after an interruption.
+    fn finish_key_change(&mut self) -> Result<()> {
+        let (Some(key), Some(old)) = (self.key.clone(), self.prev.clone()) else {
+            return Ok(());
+        };
+        match fs::read_dir(self.dir.join("docs")) {
+            Ok(entries) => {
+                for entry in entries {
+                    let path = entry?.path();
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let Some(id) = name.strip_suffix(".enc") else { continue };
+                    if self.doc_path(id).is_err() {
+                        continue;
+                    }
+                    let raw = fs::read(&path)?;
+                    if decrypt_doc(&key, id, &raw).is_ok() {
+                        continue; // done before an interruption
+                    }
+                    // a file neither key opens is damaged; leave it as it is
+                    let Ok(plain) = decrypt_doc(&old, id, &raw) else { continue };
+                    atomic_write(&path, &encrypt_doc(&key, id, &Zeroizing::new(plain))?)?;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        let mut file = self.load_vault_file()?;
+        self.reseal_backups(&old, &key, &file.slots)?;
+        file.prev = None;
+        self.save_vault_file(&file)?;
+        self.prev = None;
+        Ok(())
     }
 
     // ---------- vault data ----------
@@ -307,15 +413,7 @@ impl Store {
     pub fn add_doc(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let key = self.key.as_ref().ok_or(Error::Locked)?;
         let path = self.doc_path(id)?;
-        let mut nonce = [0u8; 24];
-        OsRng.fill_bytes(&mut nonce);
-        let ct = cipher(key)
-            .encrypt(XNonce::from_slice(&nonce), Payload { msg: bytes, aad: id.as_bytes() })
-            .map_err(|_| Error::Corrupt)?;
-        let mut out = Vec::with_capacity(DOC_MAGIC.len() + 24 + ct.len());
-        out.extend_from_slice(DOC_MAGIC);
-        out.extend_from_slice(&nonce);
-        out.extend_from_slice(&ct);
+        let out = encrypt_doc(key, id, bytes)?;
         fs::create_dir_all(self.dir.join("docs"))?;
         atomic_write(&path, &out)
     }
@@ -323,13 +421,11 @@ impl Store {
     pub fn read_doc(&self, id: &str) -> Result<Vec<u8>> {
         let key = self.key.as_ref().ok_or(Error::Locked)?;
         let raw = fs::read(self.doc_path(id)?)?;
-        if raw.len() < DOC_MAGIC.len() + 24 || &raw[..DOC_MAGIC.len()] != DOC_MAGIC {
-            return Err(Error::Corrupt);
+        match (decrypt_doc(key, id, &raw), &self.prev) {
+            // during an unfinished key change some files still use the old key
+            (Err(_), Some(prev)) => decrypt_doc(prev, id, &raw),
+            (result, _) => result,
         }
-        let (nonce, ct) = raw[DOC_MAGIC.len()..].split_at(24);
-        cipher(key)
-            .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: id.as_bytes() })
-            .map_err(|_| Error::Corrupt)
     }
 
     pub fn delete_doc(&self, id: &str) -> Result<()> {
@@ -381,12 +477,13 @@ impl Store {
         Ok(Slot { salt: B64.encode(salt), nonce: sealed.nonce, ct: sealed.ct, kdf: Some(self.kdf) })
     }
 
-    /// Put the current key slots into every backup of this vault, so a
-    /// replaced password or code cannot open an older copy either. The vault
-    /// key never changes, so the backed-up data stays readable. Backups of a
-    /// different vault (e.g. from before a reset) are left alone; unreadable
-    /// ones are removed, as they could still hold old slots.
-    fn rewrap_backups(&self, key: &Key, slots: &Slots) -> Result<()> {
+    /// Bring every backup of this vault up to date: data sealed with `key`
+    /// (re-encrypted if it still uses `old`) and the current slots, so a
+    /// replaced password or code cannot open an older copy either. Pass the
+    /// same key twice when only the slots changed. Backups of a different
+    /// vault (e.g. from before a reset) are left alone; unreadable ones are
+    /// removed, as they could still hold old slots.
+    fn reseal_backups(&self, old: &Key, key: &Key, slots: &Slots) -> Result<()> {
         let entries = match fs::read_dir(self.dir.join("backups")) {
             Ok(e) => e,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -405,10 +502,13 @@ impl Store {
                 fs::remove_file(&path)?;
                 continue;
             };
-            if open(key, &file.data, b"vault-data").is_err() {
+            if let Ok(plain) = open(old, &file.data, b"vault-data") {
+                file.data = seal(key, &Zeroizing::new(plain), b"vault-data")?;
+            } else if open(key, &file.data, b"vault-data").is_err() {
                 continue;
             }
             file.slots = slots.clone();
+            file.prev = None;
             let json = serde_json::to_vec(&file).map_err(|_| Error::Corrupt)?;
             atomic_write(&path, &json)?;
         }
@@ -475,6 +575,42 @@ fn open(key: &Key, sealed: &Sealed, aad: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| Error::WrongSecret)
 }
 
+/// Open a sealed 32-byte key.
+fn open_key(key: &Key, sealed: &Sealed, aad: &[u8]) -> Result<Key> {
+    let plain = Zeroizing::new(open(key, sealed, aad)?);
+    if plain.len() != 32 {
+        return Err(Error::Corrupt);
+    }
+    let mut out: Key = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(&plain);
+    Ok(out)
+}
+
+/// A document file: magic, nonce, ciphertext. The id is authenticated, so
+/// files cannot be swapped.
+fn encrypt_doc(key: &Key, id: &str, bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut nonce = [0u8; 24];
+    OsRng.fill_bytes(&mut nonce);
+    let ct = cipher(key)
+        .encrypt(XNonce::from_slice(&nonce), Payload { msg: bytes, aad: id.as_bytes() })
+        .map_err(|_| Error::Corrupt)?;
+    let mut out = Vec::with_capacity(DOC_MAGIC.len() + 24 + ct.len());
+    out.extend_from_slice(DOC_MAGIC);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+fn decrypt_doc(key: &Key, id: &str, raw: &[u8]) -> Result<Vec<u8>> {
+    if raw.len() < DOC_MAGIC.len() + 24 || &raw[..DOC_MAGIC.len()] != DOC_MAGIC {
+        return Err(Error::Corrupt);
+    }
+    let (nonce, ct) = raw[DOC_MAGIC.len()..].split_at(24);
+    cipher(key)
+        .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: id.as_bytes() })
+        .map_err(|_| Error::Corrupt)
+}
+
 /// `file_kdf` is used for slots written before each slot stored its own settings.
 fn unwrap_slot(slot: &Slot, secret: &[u8], file_kdf: Kdf) -> Result<Key> {
     let salt = B64.decode(&slot.salt).map_err(|_| Error::Corrupt)?;
@@ -485,17 +621,7 @@ fn unwrap_slot(slot: &Slot, secret: &[u8], file_kdf: Kdf) -> Result<Key> {
         return Err(Error::Corrupt);
     }
     let kek = derive(secret, &salt, kdf)?;
-    let plain = Zeroizing::new(open(
-        &kek,
-        &Sealed { nonce: slot.nonce.clone(), ct: slot.ct.clone() },
-        b"vault-key",
-    )?);
-    if plain.len() != 32 {
-        return Err(Error::Corrupt);
-    }
-    let mut key: Key = Zeroizing::new([0u8; 32]);
-    key.copy_from_slice(&plain);
-    Ok(key)
+    open_key(&kek, &Sealed { nonce: slot.nonce.clone(), ct: slot.ct.clone() }, b"vault-key")
 }
 
 /// 20 random characters in four groups, e.g. `K7QWM-2HXPA-9RTBE-VN4CD`.
@@ -685,7 +811,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut s = store(tmp.path());
         let old = s.create_vault(PW).unwrap();
-        let new = s.new_codes().unwrap();
+        let new = s.new_codes(PW).unwrap();
         s.lock();
         assert!(matches!(s.unlock_with_code(&old.recovery), Err(Error::WrongSecret)));
         s.unlock_with_code(&new.emergency).unwrap();
@@ -779,6 +905,109 @@ mod tests {
             .expect("a vault backup")
     }
 
+    /// A copy of `vault.json` as an attacker might keep it, with the data
+    /// part swapped for `data_from`'s: what would the old slots open?
+    fn old_slots_with_data(old_copy: &[u8], data_from: &Path) -> (tempfile::TempDir, Store) {
+        let mut v: serde_json::Value = serde_json::from_slice(old_copy).unwrap();
+        let cur: serde_json::Value = serde_json::from_slice(&fs::read(data_from).unwrap()).unwrap();
+        v["data"] = cur["data"].clone();
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("vault.json"), serde_json::to_vec(&v).unwrap()).unwrap();
+        let s = store(tmp.path());
+        (tmp, s)
+    }
+
+    #[test]
+    fn new_codes_need_the_master_password() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut s, codes) = filled_store(tmp.path());
+        assert!(matches!(s.new_codes("falsches-Passwort"), Err(Error::WrongSecret)));
+        s.lock();
+        s.unlock_with_code(&codes.recovery).unwrap();
+        assert_eq!(s.read_doc("abc").unwrap(), b"Dokument");
+    }
+
+    #[test]
+    fn new_codes_replace_the_key_so_old_copies_cannot_read_new_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut s, old) = filled_store(tmp.path());
+        let old_copy = fs::read(tmp.path().join("vault.json")).unwrap();
+        let old_doc = fs::read(tmp.path().join("docs/abc.enc")).unwrap();
+        let new = s.new_codes(PW).unwrap();
+        s.write_vault(r#"{"neu":true}"#).unwrap();
+
+        // the current vault opens with the password and the new codes only
+        let raw = fs::read_to_string(tmp.path().join("vault.json")).unwrap();
+        assert!(!raw.contains("prev"), "key change finished");
+        assert_ne!(fs::read(tmp.path().join("docs/abc.enc")).unwrap(), old_doc, "document re-encrypted");
+        let mut again = store(tmp.path());
+        assert!(matches!(again.unlock_with_code(&old.recovery), Err(Error::WrongSecret)));
+        again.unlock_with_code(&new.emergency).unwrap();
+        assert_eq!(again.read_doc("abc").unwrap(), b"Dokument");
+        again.lock();
+        again.unlock(PW).unwrap();
+        assert_eq!(again.read_vault().unwrap(), r#"{"neu":true}"#);
+
+        // the old copy still opens with the old code, but not today's data or documents
+        let (t, mut b) = old_slots_with_data(&old_copy, &tmp.path().join("vault.json"));
+        b.unlock_with_code(&old.recovery).unwrap();
+        assert!(b.read_vault().is_err());
+        fs::create_dir_all(t.path().join("docs")).unwrap();
+        fs::copy(tmp.path().join("docs/abc.enc"), t.path().join("docs/abc.enc")).unwrap();
+        assert!(matches!(b.read_doc("abc"), Err(Error::Corrupt)));
+    }
+
+    #[test]
+    fn a_key_change_re_encrypts_the_backups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut s, old) = filled_store(tmp.path());
+        let old_copy = fs::read(tmp.path().join("vault.json")).unwrap();
+        let new = s.new_codes(PW).unwrap();
+
+        let backup = vault_backup(tmp.path());
+        let (_t, mut b) = store_from_backup(&backup);
+        assert!(matches!(b.unlock_with_code(&old.recovery), Err(Error::WrongSecret)));
+        b.unlock_with_code(&new.recovery).unwrap();
+        assert!(b.read_vault().is_ok(), "backed-up data stays readable");
+        // and the old key does not open the backed-up data any more
+        let (_t2, mut o) = old_slots_with_data(&old_copy, &backup);
+        o.unlock(PW).unwrap();
+        assert!(o.read_vault().is_err());
+    }
+
+    #[test]
+    fn an_interrupted_key_change_is_finished_at_the_next_unlock() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut s, _) = filled_store(tmp.path());
+        let codes = s.start_key_change(PW).unwrap(); // as if the app stopped right here
+        assert_eq!(s.read_doc("abc").unwrap(), b"Dokument", "old-key documents stay readable");
+        s.add_doc("neu", b"Neues Dokument").unwrap();
+        drop(s);
+
+        let mut again = store(tmp.path());
+        again.unlock_with_code(&codes.emergency).unwrap();
+        assert!(again.prev.is_none());
+        assert!(!fs::read_to_string(tmp.path().join("vault.json")).unwrap().contains("prev"));
+        assert_eq!(again.read_doc("abc").unwrap(), b"Dokument");
+        assert_eq!(again.read_doc("neu").unwrap(), b"Neues Dokument");
+        assert_eq!(again.read_vault().unwrap(), r#"{"passwords":[{"pw":"x"}]}"#);
+    }
+
+    #[test]
+    fn password_and_codes_can_change_together() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut s, old) = filled_store(tmp.path());
+        let new = s.change_password_and_codes("Neues-Passwort-2026").unwrap();
+        assert!(matches!(s.change_password_and_codes("kurz"), Err(Error::WeakPassword)));
+        s.lock();
+        assert!(matches!(s.unlock(PW), Err(Error::WrongSecret)));
+        assert!(matches!(s.unlock_with_code(&old.emergency), Err(Error::WrongSecret)));
+        s.unlock_with_code(&new.recovery).unwrap();
+        s.lock();
+        s.unlock("Neues-Passwort-2026").unwrap();
+        assert_eq!(s.read_doc("abc").unwrap(), b"Dokument");
+    }
+
     #[test]
     fn old_password_and_codes_do_not_open_backups() {
         let tmp = tempfile::tempdir().unwrap();
@@ -787,7 +1016,7 @@ mod tests {
         // the first write of the day keeps a backup (with the old slots)
         s.write_vault(r#"{"v":1}"#).unwrap();
         s.change_password("Neues-Passwort-2026").unwrap();
-        let new = s.new_codes().unwrap();
+        let new = s.new_codes("Neues-Passwort-2026").unwrap();
 
         let (_t, mut b) = store_from_backup(&vault_backup(tmp.path()));
         assert!(matches!(b.unlock(PW), Err(Error::WrongSecret)));

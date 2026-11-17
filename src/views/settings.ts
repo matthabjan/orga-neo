@@ -198,32 +198,60 @@ act("change-master", () => {
     <div class="dh"><h2 id="dlg-title">Master-Passwort ändern</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
     <div class="db"><div class="field"><label for="m1">Neues Master-Passwort</label><div class="pw-wrap"><input class="inp" id="m1" name="a" type="password" autocomplete="new-password" autofocus><button class="btn ghost" type="button" data-act="toggle-secret" data-for="m1 m2">${ic("eye")}<span>Zeigen</span></button></div><div class="hint">Mindestens 10 Zeichen. Gut merkbar sind drei oder vier Wörter hintereinander.</div></div>
       <div class="field"><label for="m2">Noch einmal eingeben</label><input class="inp" id="m2" name="b" type="password" autocomplete="new-password"></div>
+      <div class="field"><label class="check"><input type="checkbox" name="codes"><span>Gleichzeitig neue Notfallblätter erstellen</span></label><div class="hint">Empfohlen, wenn jemand Ihr altes Passwort kennen könnte. Die alten Blätter gelten danach nicht mehr.</div></div>
       <p class="err" id="form-err" role="alert"></p></div>
     <div class="df"><button type="button" class="btn ghost" data-act="close">Abbrechen</button><button class="btn pri" style="--accent:var(--ink)">Ändern</button></div></form>`);
 });
-form("master", async (v) => {
+/** Disable the form's main button and show that the work takes a moment. */
+function busy(f: HTMLFormElement, on: boolean, label: string) {
+  const btn = f.querySelector<HTMLButtonElement>("button.pri")!;
+  btn.disabled = on;
+  btn.textContent = on ? "Bitte warten …" : label;
+}
+function showNewCodes(codes: Codes) {
+  lastCodes = codes;
+  openDialog(`<div class="dh"><h2 id="dlg-title">Neue Notfall-Codes</h2></div>
+    <div class="db"><p>Drucken Sie beide Blätter jetzt aus. Die Codes werden nicht noch einmal angezeigt. Die alten Blätter gelten nicht mehr.</p>${codesHtml(codes)}</div>
+    <div class="df"><button class="btn sec" data-act="print-codes">${ic("print")}Drucken</button><button class="btn pri" style="--accent:var(--ink)" data-act="close">Ich habe sie gedruckt</button></div>`);
+}
+form("master", async (v, f) => {
   const err = document.getElementById("form-err")!;
   if (v.a.length < 10) return void (err.textContent = "Das Passwort braucht mindestens 10 Zeichen.");
   if (v.a !== v.b) return void (err.textContent = "Die beiden Eingaben sind verschieden.");
+  busy(f, true, "Ändern");
   try {
-    await S.backend.vaultChangePassword(v.a);
-    closeDialog();
-    toast("Master-Passwort geändert. Ihr Notfallblatt gilt weiter.");
+    if (v.codes === "on") {
+      showNewCodes(await S.backend.vaultChangePasswordAndCodes(v.a));
+      toast("Master-Passwort geändert.");
+    } else {
+      await S.backend.vaultChangePassword(v.a);
+      closeDialog();
+      toast("Master-Passwort geändert. Ihr Notfallblatt gilt weiter.");
+    }
   } catch (e) {
+    busy(f, false, "Ändern");
     err.textContent = errorText(e);
   }
 });
-act("new-codes", async () => {
+act("new-codes", () => {
   if (!needVault()) return;
-  if (!(await confirmDialog("Neues Notfallblatt erstellen?", "Die Codes auf den alten Blättern funktionieren danach nicht mehr.", "Neu erstellen"))) return;
+  openDialog(`<form data-form="new-codes" novalidate>
+    <div class="dh"><h2 id="dlg-title">Neues Notfallblatt erstellen?</h2><button type="button" class="iconbtn x" data-act="close" aria-label="Schließen">${ic("x")}</button></div>
+    <div class="db"><p>Die Codes auf den alten Blättern funktionieren danach nicht mehr. Zur Bestätigung geben Sie bitte Ihr Master-Passwort ein.</p>
+      <div class="field"><label for="nc-pw">Master-Passwort</label><div class="pw-wrap"><input class="inp" id="nc-pw" name="pw" type="password" autocomplete="current-password" autofocus><button class="btn ghost" type="button" data-act="toggle-secret" data-for="nc-pw">${ic("eye")}<span>Zeigen</span></button></div>
+      <div class="hint">Haben Sie es vergessen? Legen Sie unter „Master-Passwort ändern“ ein neues fest und wählen Sie dort „Gleichzeitig neue Notfallblätter erstellen“.</div></div>
+      <p class="err" id="form-err" role="alert"></p></div>
+    <div class="df"><button type="button" class="btn ghost" data-act="close">Abbrechen</button><button class="btn pri" style="--accent:var(--ink)">Neu erstellen</button></div></form>`);
+});
+form("new-codes", async (v, f) => {
+  const err = document.getElementById("form-err")!;
+  if (!v.pw) return void (err.textContent = "Bitte geben Sie Ihr Master-Passwort ein.");
+  busy(f, true, "Neu erstellen");
   try {
-    const codes = await S.backend.vaultNewCodes();
-    openDialog(`<div class="dh"><h2 id="dlg-title">Neue Notfall-Codes</h2></div>
-      <div class="db"><p>Drucken Sie beide Blätter jetzt aus. Die Codes werden nicht noch einmal angezeigt.</p>${codesHtml(codes)}</div>
-      <div class="df"><button class="btn sec" data-act="print-codes">${ic("print")}Drucken</button><button class="btn pri" style="--accent:var(--ink)" data-act="close">Ich habe sie gedruckt</button></div>`);
-    lastCodes = codes;
+    showNewCodes(await S.backend.vaultNewCodes(v.pw));
   } catch (e) {
-    toast(errorText(e));
+    busy(f, false, "Neu erstellen");
+    err.textContent = errorText(e);
   }
 });
 let lastCodes: Codes | null = null;

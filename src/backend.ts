@@ -47,7 +47,10 @@ export interface Backend {
   vaultLoad(): Promise<string>;
   vaultSave(json: string): Promise<void>;
   vaultChangePassword(password: string): Promise<void>;
-  vaultNewCodes(): Promise<Codes>;
+  /** New codes and a new vault key; needs the current master password. */
+  vaultNewCodes(password: string): Promise<Codes>;
+  /** New master password, new codes and a new vault key at once. */
+  vaultChangePasswordAndCodes(password: string): Promise<Codes>;
   /** Let the user pick files and store them encrypted. */
   pickAndAddDocs(): Promise<AddedDoc[]>;
   /** Store the files last dropped onto the window (desktop app only). */
@@ -102,7 +105,8 @@ async function tauriBackend(): Promise<Backend> {
     vaultLoad: () => invoke("vault_load"),
     vaultSave: (json) => invoke("vault_save", { json }),
     vaultChangePassword: (password) => invoke("vault_change_password", { password }),
-    vaultNewCodes: () => invoke("vault_new_codes"),
+    vaultNewCodes: (password) => invoke("vault_new_codes", { password }),
+    vaultChangePasswordAndCodes: (password) => invoke("vault_change_password_and_codes", { password }),
     pickAndAddDocs: () => invoke("doc_pick_and_add"),
     addDroppedDocs: () => invoke("doc_add_dropped"),
     async docRead(id) {
@@ -233,8 +237,15 @@ function browserBackend(): Backend {
       if (password.length < 10) throw "weak_password";
       set("pw", password);
     },
-    async vaultNewCodes() {
+    async vaultNewCodes(password) {
       need();
+      if (get("pw") !== password) throw "wrong_secret";
+      return makeCodes();
+    },
+    async vaultChangePasswordAndCodes(password) {
+      need();
+      if (password.length < 10) throw "weak_password";
+      set("pw", password);
       return makeCodes();
     },
     pickAndAddDocs() {
